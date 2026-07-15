@@ -1,0 +1,151 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── 헬퍼 함수 ──
+
+    // 로그인한 사용자의 vendor_accounts 문서 조회
+    function getVendorAccount(email) {
+      return get(/databases/$(database)/documents/vendor_accounts/$(email)).data;
+    }
+
+    // 로그인 사용자가 브랜드회원이고 특정 brandId에 연결돼 있는지 확인
+    function isBrandMember(brandId) {
+      let va = getVendorAccount(request.auth.token.email.lower());
+      return va != null && va.brand_id == brandId && va.status == '연결됨';
+    }
+
+    // ── users 컬렉션 ──
+    match /users/{uid} {
+      // 본인만 read/write
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── vendor_accounts 컬렉션 ──
+    match /vendor_accounts/{email} {
+      // 본인 이메일 문서만 read (소문자 정규화된 이메일)
+      allow read: if request.auth != null
+        && request.auth.token.email.lower() == email;
+      // 본인 문서의 uid, status, linked_at 필드 업데이트 허용 (연결됨 처리)
+      allow update: if request.auth != null
+        && request.auth.token.email.lower() == email
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['uid', 'status', 'linked_at']);
+      // 생성은 서버(admin) 또는 브랜드 담당자(persons 추가 시) — 단, uid=null 필드만
+      allow create: if request.auth != null;
+    }
+
+    // ── brand_applications 컬렉션 ──
+    match /brand_applications/{docId} {
+      // 본인이 작성한 것만 read
+      allow read: if request.auth != null
+        && resource.data.applicant_uid == request.auth.uid;
+      // 로그인 사용자 누구나 생성 가능 (applicant_uid는 본인 uid로만)
+      allow create: if request.auth != null
+        && request.resource.data.applicant_uid == request.auth.uid
+        && request.resource.data.status == '제출됨';
+      // status 변경은 admin만 (이 규칙에서는 vendor 업데이트 불가)
+      allow update: if false;
+    }
+
+    // ── brand_join_requests 컬렉션 ──
+    match /brand_join_requests/{docId} {
+      allow read: if request.auth != null
+        && resource.data.applicant_uid == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.data.applicant_uid == request.auth.uid
+        && request.resource.data.status == '제출됨';
+      allow update: if false;
+    }
+
+    // ── brands 컬렉션 ──
+    match /brands/{brandId} {
+      // 해당 브랜드 담당자(연결됨)만 read
+      allow read: if request.auth != null && isBrandMember(brandId);
+      // vendor가 수정 가능한 필드만 write 허용
+      allow update: if request.auth != null
+        && isBrandMember(brandId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['phone', 'email', 'address', 'description', 'updated_at']);
+      allow create, delete: if false;
+
+      // ── brands/{brandId}/persons 서브컬렉션 ──
+      match /persons/{personId} {
+        allow read: if request.auth != null && isBrandMember(brandId);
+        allow create: if request.auth != null && isBrandMember(brandId);
+        allow update: if request.auth != null && isBrandMember(brandId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['name', 'role', 'phone', 'contact_email', 'updated_at']);
+        allow delete: if false;
+      }
+
+      // ── brands/{brandId}/contracts 서브컬렉션 ──
+      match /contracts/{contractId} {
+        allow read: if request.auth != null && isBrandMember(brandId);
+        allow write: if false; // admin 전용
+      }
+    }
+
+    // ── products 컬렉션 ──
+    match /products/{productId} {
+      // 자기 브랜드 상품만 read
+      allow read: if request.auth != null
+        && resource.data.brand_id != null
+        && isBrandMember(resource.data.brand_id);
+
+      // 신규 등록 신청: brand_id는 자기 브랜드, status는 '등록신청'만
+      allow create: if request.auth != null
+        && isBrandMember(request.resource.data.brand_id)
+        && request.resource.data.status == '등록신청'
+        && !request.resource.data.keys().hasAny(['supply_price', 'commission_rate', 'approved_at']);
+
+      // 수정 요청: vendor가 수정 가능한 필드만
+      allow update: if request.auth != null
+        && isBrandMember(resource.data.brand_id)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['product_name', 'category', 'barcode', 'retail_price',
+                       'description', 'status', 'mod_reason', 'mod_requested_at', 'updated_at'])
+        && request.resource.data.status == '수정요청중';
+      allow delete: if false;
+    }
+
+    // ── settlements 컬렉션 ──
+    match /settlements/{settlementId} {
+      allow read: if request.auth != null
+        && resource.data.brand_id != null
+        && isBrandMember(resource.data.brand_id);
+      allow write: if false;
+    }
+
+    // ── inventory 컬렉션 ──
+    match /inventory/{docId} {
+      allow read: if request.auth != null
+        && resource.data.brand_id != null
+        && isBrandMember(resource.data.brand_id);
+      allow write: if false;
+    }
+
+    // ── notices 컬렉션 ──
+    match /notices/{noticeId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── inquiries 컬렉션 ──
+    match /inquiries/{inquiryId} {
+      // 본인이 작성한 것만 read
+      allow read: if request.auth != null
+        && resource.data.author_uid == request.auth.uid;
+      // 로그인 사용자 누구나 생성 가능 (author_uid 본인)
+      allow create: if request.auth != null
+        && request.resource.data.author_uid == request.auth.uid;
+      // vendor는 title, content만 수정 가능 (answer는 admin 전용)
+      allow update: if request.auth != null
+        && resource.data.author_uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['title', 'content', 'updated_at']);
+      allow delete: if false;
+    }
+  }
+}
