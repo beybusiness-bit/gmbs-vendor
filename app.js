@@ -1,30 +1,33 @@
 import {
   auth, db, googleProvider,
   signInWithPopup, signOut, onAuthStateChanged,
-  doc, getDoc, setDoc, serverTimestamp,
+  doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, serverTimestamp,
 } from './firebase-init.js';
+import { renderBrandInfo }    from './pages/brand-info.js';
+import { renderPersons }      from './pages/persons.js';
+import { renderContracts }    from './pages/contracts.js';
+import { renderProducts }     from './pages/products.js';
+import { renderInventory }    from './pages/inventory.js';
+import { renderSettlements }  from './pages/settlements.js';
+import { renderNotices }      from './pages/notices.js';
+import { renderInquiries }    from './pages/inquiries.js';
+import {
+  sendApplicationReceivedEmail,
+  sendJoinReceivedEmail,
+} from './emailjs-config.js';
 
 // ── 상태 상수 ──
 const STATUS = {
-  GENERAL: '일반회원',
-  BRAND:   '브랜드회원',
-  INVITED: '초대됨',
-  LINKED:  '연결됨',
+  GENERAL:   '일반회원',
+  BRAND:     '브랜드회원',
+  INVITED:   '초대됨',
+  LINKED:    '연결됨',
   SUBMITTED: '제출됨',
-  APPROVED: '승인',
-  REJECTED: '거절',
+  APPROVED:  '승인',
+  REJECTED:  '거절',
 };
 
-// ── 이메일 소문자 정규화 ──
 const normalizeEmail = e => (e || '').toLowerCase().trim();
-
-// ── 로컬 날짜 (toISOString UTC 방식 금지) ──
-const today = () => {
-  const d = new Date();
-  return d.getFullYear() + '-'
-    + String(d.getMonth() + 1).padStart(2, '0') + '-'
-    + String(d.getDate()).padStart(2, '0');
-};
 
 // ── DOM 참조 ──
 const $ = id => document.getElementById(id);
@@ -32,16 +35,16 @@ const loadingScreen = $('loading-screen');
 const loginScreen   = $('login-screen');
 const appScreen     = $('app-screen');
 
-// ── 화면 전환 헬퍼 ──
+// ── 화면 전환 ──
 function showLoading(on) { loadingScreen.style.display = on ? 'flex' : 'none'; }
 function showLogin()  { loginScreen.style.display = 'flex'; appScreen.style.display = 'none'; showLoading(false); }
 function showApp()    { loginScreen.style.display = 'none'; appScreen.style.display = 'block'; showLoading(false); }
 
 // ── 현재 사용자 상태 ──
-let currentUser = null;
+let currentUser    = null;
 let currentUserDoc = null;
 
-// ── 구글 로그인 공통 처리 ──
+// ── 구글 로그인 ──
 async function handleGoogleSignIn() {
   $('login-error').textContent = '';
   try {
@@ -55,26 +58,11 @@ async function handleGoogleSignIn() {
   }
 }
 
-// ── 로그인 버튼 ──
-$('btn-login').addEventListener('click', async () => {
-  const user = await handleGoogleSignIn();
-  if (!user) return;
-  // onAuthStateChanged가 이어서 처리
-});
+$('btn-login').addEventListener('click',    () => handleGoogleSignIn());
+$('btn-register').addEventListener('click', () => handleGoogleSignIn());
+$('btn-signout').addEventListener('click',  () => signOut(auth));
 
-// ── 계정 만들기(신규 가입) 버튼 ──
-$('btn-register').addEventListener('click', async () => {
-  const user = await handleGoogleSignIn();
-  if (!user) return;
-  // onAuthStateChanged가 이어서 처리
-});
-
-// ── 로그아웃 ──
-$('btn-signout').addEventListener('click', async () => {
-  await signOut(auth);
-});
-
-// ── 인증 상태 감지 — 앱의 핵심 진입점 ──
+// ── 인증 상태 감지 ──
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     currentUser = null;
@@ -86,45 +74,40 @@ onAuthStateChanged(auth, async (user) => {
   showLoading(true);
   currentUser = user;
 
-  const email = normalizeEmail(user.email);
-  const uid   = user.uid;
-
-  // 1. users/{uid} 조회
-  const userRef  = doc(db, 'users', uid);
+  const email   = normalizeEmail(user.email);
+  const uid     = user.uid;
+  const userRef = doc(db, 'users', uid);
   const userSnap = await getDoc(userRef);
 
   if (!userSnap.exists()) {
-    // 신규 유저: users 문서 생성 (추가 정보 요구 없음)
     const vendorRef  = doc(db, 'vendor_accounts', email);
     const vendorSnap = await getDoc(vendorRef);
 
     if (vendorSnap.exists() && vendorSnap.data().status === STATUS.INVITED) {
-      // admin이 미리 등록해둔 초대 계정 → 브랜드회원으로 자동 연결
       const vd = vendorSnap.data();
       await setDoc(userRef, {
         email,
-        name: user.displayName || '',
-        phone: '',
+        name:          user.displayName || '',
+        phone:         '',
         member_status: STATUS.BRAND,
-        brand_id:  vd.brand_id  || null,
-        person_id: vd.person_id || null,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp(),
+        brand_id:      vd.brand_id  || null,
+        person_id:     vd.person_id || null,
+        created_at:    serverTimestamp(),
+        updated_at:    serverTimestamp(),
       });
       await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
       currentUserDoc = (await getDoc(userRef)).data();
-      renderApp(STATUS.BRAND, true /* isNewLink */);
+      renderApp(STATUS.BRAND, true);
     } else {
-      // 완전 신규 → 일반회원 생성 후 갈래 선택 화면
       await setDoc(userRef, {
         email,
-        name: user.displayName || '',
-        phone: '',
+        name:          user.displayName || '',
+        phone:         '',
         member_status: STATUS.GENERAL,
-        brand_id:  null,
-        person_id: null,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp(),
+        brand_id:      null,
+        person_id:     null,
+        created_at:    serverTimestamp(),
+        updated_at:    serverTimestamp(),
       });
       currentUserDoc = (await getDoc(userRef)).data();
       renderApp(STATUS.GENERAL);
@@ -143,60 +126,39 @@ function renderApp(memberStatus, isNewLink = false) {
   } else if (memberStatus === STATUS.BRAND) {
     renderPage('dashboard');
   } else {
-    // 일반회원: 신청 현황 확인 후 분기
     checkApplicationStatus();
   }
   showApp();
 }
 
-// ── 일반회원 신청 현황 확인 ──
 async function checkApplicationStatus() {
-  const uid = currentUser.uid;
-
-  // brand_applications 확인
-  const { collection, query, where, getDocs } = await import(
-    'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js'
-  );
-  const appsQ = query(collection(db, 'brand_applications'), where('applicant_uid', '==', uid));
+  const uid  = currentUser.uid;
+  const appsQ = query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid));
   const joinQ = query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid));
-
   const [appsSnap, joinSnap] = await Promise.all([getDocs(appsQ), getDocs(joinQ)]);
-
-  const hasApp  = !appsSnap.empty;
-  const hasJoin = !joinSnap.empty;
-
-  if (!hasApp && !hasJoin) {
-    renderPage('branch-select');
-  } else {
-    renderPage('pending');
-  }
+  renderPage((!appsSnap.empty || !joinSnap.empty) ? 'pending' : 'branch-select');
 }
 
-// ── 사이드바 사용자 정보 ──
+// ── 사이드바 ──
 function updateSidebarUser(memberStatus) {
-  const user = currentUser;
-  $('user-name-text').textContent = user.displayName || user.email;
+  $('user-name-text').textContent = currentUser.displayName || currentUser.email;
   $('user-role-text').textContent = memberStatus;
 
   const avatarEl = $('user-avatar');
-  if (user.photoURL) {
-    avatarEl.innerHTML = `<img src="${user.photoURL}" alt="프로필">`;
+  if (currentUser.photoURL) {
+    avatarEl.innerHTML = `<img src="${currentUser.photoURL}" alt="프로필">`;
   } else {
-    avatarEl.textContent = (user.displayName || user.email || '?')[0].toUpperCase();
+    avatarEl.textContent = (currentUser.displayName || currentUser.email || '?')[0].toUpperCase();
   }
-
-  // 사이드바 메뉴 구성
   renderSidebar(memberStatus);
 }
 
-// ── 사이드바 메뉴 ──
 function renderSidebar(memberStatus) {
   const nav = $('sidebar-nav');
-
   if (memberStatus === STATUS.BRAND) {
     nav.innerHTML = `
       <div class="nav-section-label">브랜드 관리</div>
-      <div class="nav-item active" data-page="dashboard"><span class="icon">🏠</span> 대시보드</div>
+      <div class="nav-item" data-page="dashboard"><span class="icon">🏠</span> 대시보드</div>
       <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span> 브랜드 정보</div>
       <div class="nav-item" data-page="persons"><span class="icon">👥</span> 담당자 관리</div>
       <div class="nav-item" data-page="contracts"><span class="icon">📄</span> 계약서</div>
@@ -211,7 +173,7 @@ function renderSidebar(memberStatus) {
   } else {
     nav.innerHTML = `
       <div class="nav-section-label">신청 현황</div>
-      <div class="nav-item active" data-page="pending"><span class="icon">🔍</span> 신청 현황</div>
+      <div class="nav-item" data-page="pending"><span class="icon">🔍</span> 신청 현황</div>
       <div class="nav-section-label">고객지원</div>
       <div class="nav-item" data-page="notices"><span class="icon">📢</span> 공지사항</div>
     `;
@@ -226,42 +188,61 @@ function renderSidebar(memberStatus) {
   });
 }
 
-// ── 페이지 렌더링 라우터 ──
-function renderPage(page) {
+function setActiveNav(page) {
+  document.querySelectorAll('#sidebar-nav .nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+}
+
+// ── 페이지 라우터 ──
+const PAGE_TITLES = {
+  dashboard:    '대시보드',
+  'branch-select': '입점 신청',
+  pending:      '신청 현황',
+  welcome:      '환영합니다',
+  'brand-info': '브랜드 정보',
+  persons:      '담당자 관리',
+  contracts:    '계약서',
+  products:     '상품 관리',
+  inventory:    '재고·판매 조회',
+  settlements:  '정산 조회',
+  notices:      '공지사항',
+  inquiries:    '문의하기',
+};
+
+function ctx() {
+  return {
+    userDoc: currentUserDoc,
+    user:    currentUser,
+    container: $('main-content'),
+    showModal,
+    closeModal,
+  };
+}
+
+async function renderPage(page) {
   $('topbar-title').textContent = PAGE_TITLES[page] || page;
-  const content = $('main-content');
+  setActiveNav(page);
+  const container = $('main-content');
 
   switch (page) {
-    case 'dashboard':    content.innerHTML = renderDashboard(); break;
-    case 'branch-select': renderBranchSelect(content); break;
-    case 'pending':      content.innerHTML = renderPending(); break;
-    case 'welcome':      content.innerHTML = renderWelcome(); break;
-    case 'brand-info':   content.innerHTML = renderComingSoon('브랜드 정보', '2단계 이후 구현 예정'); break;
-    case 'persons':      content.innerHTML = renderComingSoon('담당자 관리', '5단계 구현 예정'); break;
-    case 'contracts':    content.innerHTML = renderComingSoon('계약서 다운로드', '6단계 구현 예정'); break;
-    case 'products':     content.innerHTML = renderComingSoon('상품 관리', '7단계 구현 예정'); break;
-    case 'inventory':    content.innerHTML = renderComingSoon('재고·판매 조회', '데이터 연동 준비중'); break;
-    case 'settlements':  content.innerHTML = renderComingSoon('정산 조회', '데이터 연동 준비중'); break;
-    case 'notices':      content.innerHTML = renderComingSoon('공지사항', '10단계 구현 예정'); break;
-    case 'inquiries':    content.innerHTML = renderComingSoon('문의하기', '10단계 구현 예정'); break;
-    default:             content.innerHTML = '<p>페이지를 찾을 수 없습니다.</p>';
+    case 'dashboard':     container.innerHTML = renderDashboard(); break;
+    case 'branch-select': renderBranchSelect(container); break;
+    case 'pending':       await renderPendingFull(container); break;
+    case 'welcome':       container.innerHTML = renderWelcome(); break;
+    case 'brand-info':    await renderBrandInfo(ctx()); break;
+    case 'persons':       await renderPersons(ctx()); break;
+    case 'contracts':     await renderContracts(ctx()); break;
+    case 'products':      await renderProducts(ctx()); break;
+    case 'inventory':     await renderInventory(ctx()); break;
+    case 'settlements':   await renderSettlements(ctx()); break;
+    case 'notices':       await renderNotices(ctx()); break;
+    case 'inquiries':     await renderInquiries(ctx()); break;
+    default:              container.innerHTML = '<p>페이지를 찾을 수 없습니다.</p>';
   }
 }
 
-const PAGE_TITLES = {
-  dashboard: '대시보드',
-  'branch-select': '입점 신청',
-  pending: '신청 현황',
-  welcome: '환영합니다',
-  'brand-info': '브랜드 정보',
-  persons: '담당자 관리',
-  contracts: '계약서',
-  products: '상품 관리',
-  inventory: '재고·판매 조회',
-  settlements: '정산 조회',
-  notices: '공지사항',
-  inquiries: '문의하기',
-};
+window._gotoPage = page => renderPage(page);
 
 // ── 대시보드 ──
 function renderDashboard() {
@@ -272,12 +253,13 @@ function renderDashboard() {
       <p style="color:var(--gray-600);font-size:14px">GMBS 입점 브랜드 포털에 오신 것을 환영합니다.</p>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px">
-      ${dashCard('📦', '상품 관리', '등록된 상품을 관리하세요', 'products')}
-      ${dashCard('📄', '계약서', '계약서를 확인·다운로드하세요', 'contracts')}
-      ${dashCard('💰', '정산 조회', '정산 내역을 확인하세요', 'settlements')}
-      ${dashCard('💬', '문의하기', '운영자에게 문의하세요', 'inquiries')}
-    </div>
-  `;
+      ${dashCard('🏷️', '브랜드 정보', '브랜드 정보를 조회·수정하세요',   'brand-info')}
+      ${dashCard('📦', '상품 관리',   '상품을 등록하고 현황을 확인하세요', 'products')}
+      ${dashCard('📄', '계약서',      '계약서를 확인·다운로드하세요',      'contracts')}
+      ${dashCard('💰', '정산 조회',   '정산 내역을 확인하세요',            'settlements')}
+      ${dashCard('💬', '문의하기',    '운영자에게 문의하세요',             'inquiries')}
+      ${dashCard('📢', '공지사항',    '운영 공지를 확인하세요',            'notices')}
+    </div>`;
 }
 function dashCard(icon, title, desc, page) {
   return `<div class="card" style="cursor:pointer" onclick="window._gotoPage('${page}')">
@@ -286,11 +268,9 @@ function dashCard(icon, title, desc, page) {
     <div style="font-size:13px;color:var(--gray-600)">${desc}</div>
   </div>`;
 }
-window._gotoPage = page => renderPage(page);
 
 // ── 갈래 선택 화면 ──
 function renderBranchSelect(container) {
-  $('topbar-title').textContent = '입점 신청';
   container.innerHTML = `
     <div style="max-width:640px;margin:0 auto">
       <h2 style="font-size:20px;font-weight:700;margin-bottom:8px">어떻게 시작하시겠어요?</h2>
@@ -307,20 +287,14 @@ function renderBranchSelect(container) {
           <p>GMBS에 새 브랜드로 입점을 신청합니다.</p>
         </div>
       </div>
-    </div>
-  `;
+    </div>`;
 
-  $('bc-join').addEventListener('click', () => openJoinModal());
-  $('bc-new').addEventListener('click',  () => openApplyModal());
+  $('bc-join').addEventListener('click', openJoinModal);
+  $('bc-new').addEventListener('click',  openApplyModal);
 }
 
 // ── 합류 신청 모달 ──
 async function openJoinModal() {
-  const { collection, getDocs, addDoc, serverTimestamp: st } = await import(
-    'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js'
-  );
-
-  // 브랜드 목록 조회
   const brandsSnap = await getDocs(collection(db, 'brands'));
   const brandOptions = brandsSnap.docs.map(d =>
     `<option value="${d.id}">${d.data().brand_name || d.id}</option>`
@@ -350,12 +324,14 @@ async function openJoinModal() {
   $('btn-join-submit').addEventListener('click', async () => {
     const brandId = $('join-brand').value;
     const phone   = $('join-phone').value.trim();
-    if (!brandId) { $('join-error').textContent = '브랜드를 선택해 주세요.'; return; }
-    if (!phone)   { $('join-error').textContent = '연락처를 입력해 주세요.'; return; }
+    const errEl   = $('join-error');
+    if (!brandId) { errEl.textContent = '브랜드를 선택해 주세요.'; return; }
+    if (!phone)   { errEl.textContent = '연락처를 입력해 주세요.'; return; }
 
     $('btn-join-submit').disabled = true;
     $('btn-join-submit').textContent = '신청 중...';
 
+    const brandName = brandsSnap.docs.find(d => d.id === brandId)?.data()?.brand_name || '';
     await addDoc(collection(db, 'brand_join_requests'), {
       applicant_uid:   currentUser.uid,
       applicant_email: normalizeEmail(currentUser.email),
@@ -363,8 +339,16 @@ async function openJoinModal() {
       applicant_phone: phone,
       applicant_role:  $('join-role').value.trim(),
       target_brand_id: brandId,
+      target_brand_name: brandName,
       status:          STATUS.SUBMITTED,
-      submitted_at:    st(),
+      submitted_at:    serverTimestamp(),
+    });
+
+    // EmailJS: 합류 신청 접수 확인 메일
+    sendJoinReceivedEmail({
+      toEmail:   normalizeEmail(currentUser.email),
+      toName:    currentUser.displayName || '',
+      brandName,
     });
 
     closeModal();
@@ -374,10 +358,6 @@ async function openJoinModal() {
 
 // ── 새 브랜드 등록 신청 모달 ──
 async function openApplyModal() {
-  const { collection, addDoc, serverTimestamp: st } = await import(
-    'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js'
-  );
-
   showModal(`
     <div class="modal-title">새 브랜드 입점 신청</div>
     <div class="form-group">
@@ -408,9 +388,10 @@ async function openApplyModal() {
     const brandName = $('app-brand-name').value.trim();
     const bizNo     = $('app-biz-no').value.trim();
     const phone     = $('app-phone').value.trim();
-    if (!brandName) { $('app-error').textContent = '브랜드명을 입력해 주세요.'; return; }
-    if (!bizNo)     { $('app-error').textContent = '사업자 등록번호를 입력해 주세요.'; return; }
-    if (!phone)     { $('app-error').textContent = '연락처를 입력해 주세요.'; return; }
+    const errEl     = $('app-error');
+    if (!brandName) { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
+    if (!bizNo)     { errEl.textContent = '사업자 등록번호를 입력해 주세요.'; return; }
+    if (!phone)     { errEl.textContent = '연락처를 입력해 주세요.'; return; }
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
@@ -425,7 +406,14 @@ async function openApplyModal() {
       biz_no:          bizNo,
       ceo_name:        $('app-ceo').value.trim(),
       status:          STATUS.SUBMITTED,
-      submitted_at:    st(),
+      submitted_at:    serverTimestamp(),
+    });
+
+    // EmailJS: 신청 접수 확인 메일
+    sendApplicationReceivedEmail({
+      toEmail:   normalizeEmail(currentUser.email),
+      toName:    currentUser.displayName || '',
+      brandName,
     });
 
     closeModal();
@@ -433,20 +421,72 @@ async function openApplyModal() {
   });
 }
 
-// ── 심사중 화면 ──
-function renderPending() {
-  return `
-    <div class="pending-wrap">
-      <div class="pending-icon">⏳</div>
-      <h2>신청이 접수되었습니다</h2>
-      <p>운영자가 신청 내용을 검토 중입니다.<br>
-         승인 결과는 이메일로 안내드립니다.<br>
-         보통 영업일 기준 1~3일 내로 처리됩니다.</p>
-      <div style="margin-top:28px">
-        <span class="badge badge-yellow">심사중</span>
+// ── 심사중 화면 (내 신청 현황 표시) ──
+async function renderPendingFull(container) {
+  const uid = currentUser.uid;
+  container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
+
+  const appsQ = query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid));
+  const joinQ = query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid));
+  const [appsSnap, joinSnap] = await Promise.all([getDocs(appsQ), getDocs(joinQ)]);
+
+  const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'apply', ...d.data() }));
+  const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join',  ...d.data() }));
+  const all   = [...apps, ...joins].sort((a, b) => {
+    const ta = a.submitted_at?.toMillis?.() || 0;
+    const tb = b.submitted_at?.toMillis?.() || 0;
+    return tb - ta;
+  });
+
+  if (all.length === 0) {
+    renderPage('branch-select');
+    return;
+  }
+
+  const statusBadge = s => {
+    const map = { '제출됨': 'badge-yellow', '승인': 'badge-green', '거절': 'badge-red' };
+    return `<span class="badge ${map[s] || 'badge-gray'}">${s || '-'}</span>`;
+  };
+  const fmt = ts => {
+    if (!ts) return '-';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+  };
+
+  container.innerHTML = `
+    <div style="max-width:640px">
+      <div style="margin-bottom:24px">
+        <h2 style="font-size:18px;font-weight:700">신청 현황</h2>
+        <p style="font-size:13px;color:var(--gray-600);margin-top:4px">
+          승인되면 자동으로 브랜드 포털이 열립니다. 페이지를 새로고침해 주세요.
+        </p>
       </div>
-    </div>
-  `;
+      ${all.map(item => `
+        <div class="card" style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                ${statusBadge(item.status)}
+                <span class="badge badge-gray">${item.type === 'apply' ? '새 브랜드 등록' : '브랜드 합류'}</span>
+              </div>
+              <div style="font-weight:700;font-size:15px">
+                ${item.brand_name || item.target_brand_name || item.target_brand_id || '-'}
+              </div>
+              <div style="font-size:12px;color:var(--gray-400);margin-top:4px">
+                신청일: ${fmt(item.submitted_at)}
+              </div>
+              ${item.rejection_reason ? `<div style="margin-top:8px;font-size:13px;color:var(--danger)">
+                거절 사유: ${item.rejection_reason}
+              </div>` : ''}
+            </div>
+          </div>
+        </div>`).join('')}
+      <div style="margin-top:16px;text-align:center">
+        <button class="btn btn-outline" onclick="location.reload()" style="width:auto;padding:10px 24px">
+          🔄 새로고침
+        </button>
+      </div>
+    </div>`;
 }
 
 // ── 환영(자동연결) 화면 ──
@@ -458,27 +498,15 @@ function renderWelcome() {
       <div class="pending-icon">🎉</div>
       <h2>환영합니다, ${name}님!</h2>
       <p>브랜드 담당자로 자동 연결되었습니다.<br>
-         브랜드 ID: <strong>${brandId}</strong><br>
          이제 모든 관리 메뉴를 이용하실 수 있습니다.</p>
       <button class="btn btn-primary" style="max-width:200px;margin:28px auto 0"
         onclick="location.reload()">시작하기</button>
-    </div>
-  `;
-}
-
-// ── 준비중 화면 ──
-function renderComingSoon(title, note) {
-  return `
-    <div class="pending-wrap">
-      <div class="pending-icon">🔧</div>
-      <h2>${title}</h2>
-      <p>${note}</p>
-    </div>
-  `;
+    </div>`;
 }
 
 // ── 모달 헬퍼 ──
 function showModal(html) {
+  closeModal();
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.id = 'modal-overlay';

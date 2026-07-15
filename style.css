@@ -289,8 +289,52 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 }
 .modal-title { font-size: 20px; font-weight: 700; margin-bottom: 24px; }
 
+/* ── 정보 그리드 (브랜드 정보 페이지) ── */
+.info-grid { display: grid; gap: 0; }
+.info-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gray-100);
+  font-size: 14px;
+}
+.info-row:last-child { border-bottom: none; }
+.info-label { color: var(--gray-400); font-weight: 500; }
+.info-value { color: var(--gray-900); }
+
+/* ── 데이터 테이블 ── */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--gray-200);
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.data-table th {
+  background: var(--gray-50);
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gray-600);
+  border-bottom: 1px solid var(--gray-200);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--gray-700);
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tbody tr:hover { background: var(--gray-50); }
+
 @media (max-width: 680px) {
   .sidebar { transform: translateX(-100%); transition: transform .2s; }
   .main-wrap { margin-left: 0; }
   .branch-grid { grid-template-columns: 1fr; }
+  .info-row { grid-template-columns: 110px 1fr; }
 }
