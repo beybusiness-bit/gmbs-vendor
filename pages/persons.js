@@ -1,4 +1,4 @@
-import { db, collection, getDocs, doc, addDoc, updateDoc, serverTimestamp } from '../firebase-init.js';
+import { db, collection, getDocs, doc, addDoc, updateDoc, setDoc, serverTimestamp } from '../firebase-init.js';
 
 export async function renderPersons({ userDoc, user, container, showModal, closeModal }) {
   const brandId = userDoc?.brand_id;
@@ -145,10 +145,9 @@ async function openPersonModal({ brandId, person, showModal, closeModal, contain
         data.login_google_email = loginEmail;
         data.created_at = serverTimestamp();
         // vendor_accounts에 "초대됨" 상태로 생성
-        const { setDoc, doc: d2 } = await import('../firebase-init.js');
         await Promise.all([
           addDoc(collection(db, 'brands', brandId, 'persons'), data),
-          setDoc(d2(db, 'vendor_accounts', loginEmail), {
+          setDoc(doc(db, 'vendor_accounts', loginEmail), {
             uid:       null,
             brand_id:  brandId,
             person_id: null, // 추가 후 ID를 알 수 없으므로 나중에 연결

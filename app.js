@@ -1,7 +1,7 @@
 import {
   auth, db, googleProvider,
   signInWithPopup, signOut, onAuthStateChanged,
-  doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, serverTimestamp,
+  doc, getDoc, setDoc, addDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
 } from './firebase-init.js';
 import { renderBrandInfo }    from './pages/brand-info.js';
 import { renderPersons }      from './pages/persons.js';
@@ -11,6 +11,7 @@ import { renderInventory }    from './pages/inventory.js';
 import { renderSettlements }  from './pages/settlements.js';
 import { renderNotices }      from './pages/notices.js';
 import { renderInquiries }    from './pages/inquiries.js';
+import { renderAccount }      from './pages/account.js';
 import {
   sendApplicationReceivedEmail,
   sendJoinReceivedEmail,
@@ -169,6 +170,8 @@ function renderSidebar(memberStatus) {
       <div class="nav-section-label">고객지원</div>
       <div class="nav-item" data-page="notices"><span class="icon">📢</span> 공지사항</div>
       <div class="nav-item" data-page="inquiries"><span class="icon">💬</span> 문의하기</div>
+      <div class="nav-section-label">내 계정</div>
+      <div class="nav-item" data-page="account"><span class="icon">⚙️</span> 계정 설정</div>
     `;
   } else {
     nav.innerHTML = `
@@ -176,6 +179,8 @@ function renderSidebar(memberStatus) {
       <div class="nav-item" data-page="pending"><span class="icon">🔍</span> 신청 현황</div>
       <div class="nav-section-label">고객지원</div>
       <div class="nav-item" data-page="notices"><span class="icon">📢</span> 공지사항</div>
+      <div class="nav-section-label">내 계정</div>
+      <div class="nav-item" data-page="account"><span class="icon">⚙️</span> 계정 설정</div>
     `;
   }
 
@@ -208,6 +213,7 @@ const PAGE_TITLES = {
   settlements:  '정산 조회',
   notices:      '공지사항',
   inquiries:    '문의하기',
+  account:      '계정 설정',
 };
 
 function ctx() {
@@ -226,7 +232,7 @@ async function renderPage(page) {
   const container = $('main-content');
 
   switch (page) {
-    case 'dashboard':     container.innerHTML = renderDashboard(); break;
+    case 'dashboard':     await renderDashboard(); break;
     case 'branch-select': renderBranchSelect(container); break;
     case 'pending':       await renderPendingFull(container); break;
     case 'welcome':       container.innerHTML = renderWelcome(); break;
@@ -238,6 +244,7 @@ async function renderPage(page) {
     case 'settlements':   await renderSettlements(ctx()); break;
     case 'notices':       await renderNotices(ctx()); break;
     case 'inquiries':     await renderInquiries(ctx()); break;
+    case 'account':       await renderAccount(ctx()); break;
     default:              container.innerHTML = '<p>페이지를 찾을 수 없습니다.</p>';
   }
 }
@@ -245,12 +252,18 @@ async function renderPage(page) {
 window._gotoPage = page => renderPage(page);
 
 // ── 대시보드 ──
-function renderDashboard() {
-  const name = currentUserDoc?.name || currentUser?.displayName || '';
-  return `
+async function renderDashboard() {
+  const name    = currentUserDoc?.name || currentUser?.displayName || '';
+  const brandId = currentUserDoc?.brand_id;
+  const container = $('main-content');
+
+  container.innerHTML = `
     <div class="card" style="margin-bottom:20px">
       <h2 style="font-size:20px;font-weight:700;margin-bottom:6px">안녕하세요, ${name}님 👋</h2>
       <p style="color:var(--gray-600);font-size:14px">GMBS 입점 브랜드 포털에 오신 것을 환영합니다.</p>
+    </div>
+    <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+      <div class="card" style="text-align:center"><div class="spinner" style="margin:16px auto"></div></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px">
       ${dashCard('🏷️', '브랜드 정보', '브랜드 정보를 조회·수정하세요',   'brand-info')}
@@ -260,7 +273,49 @@ function renderDashboard() {
       ${dashCard('💬', '문의하기',    '운영자에게 문의하세요',             'inquiries')}
       ${dashCard('📢', '공지사항',    '운영 공지를 확인하세요',            'notices')}
     </div>`;
+
+  // 통계 카드 비동기 로드
+  if (brandId) {
+    try {
+      const [prodSnap, inqSnap, noticeSnap] = await Promise.all([
+        getDocs(query(collection(db, 'products'), where('brand_id', '==', brandId))),
+        getDocs(query(collection(db, 'inquiries'), where('brand_id', '==', brandId))),
+        getDocs(query(collection(db, 'notices'), orderBy('created_at', 'desc'), limit(1))),
+      ]);
+
+      const totalProds    = prodSnap.size;
+      const pendingProds  = prodSnap.docs.filter(d => d.data().status === '등록신청').length;
+      const openInquiries = inqSnap.docs.filter(d => d.data().status === '접수').length;
+      const hasNewNotice  = !noticeSnap.empty;
+
+      const statsEl = document.getElementById('dash-stats');
+      if (statsEl) {
+        statsEl.innerHTML = `
+          ${statCard('📦', '등록 상품', totalProds + '개', 'products')}
+          ${statCard('⏳', '승인 대기', pendingProds + '개', 'products')}
+          ${statCard('💬', '미답변 문의', openInquiries + '건', 'inquiries')}
+          ${statCard('📢', '공지사항', hasNewNotice ? '최신 공지 있음' : '-', 'notices')}
+        `;
+      }
+    } catch (_) {
+      const statsEl = document.getElementById('dash-stats');
+      if (statsEl) statsEl.innerHTML = '';
+    }
+  } else {
+    const statsEl = document.getElementById('dash-stats');
+    if (statsEl) statsEl.innerHTML = '';
+  }
 }
+
+function statCard(icon, label, value, page) {
+  return `
+    <div class="card" style="text-align:center;cursor:pointer;padding:16px" onclick="window._gotoPage('${page}')">
+      <div style="font-size:22px;margin-bottom:6px">${icon}</div>
+      <div style="font-size:11px;color:var(--gray-400);margin-bottom:4px">${label}</div>
+      <div style="font-size:18px;font-weight:800;color:var(--primary)">${value}</div>
+    </div>`;
+}
+
 function dashCard(icon, title, desc, page) {
   return `<div class="card" style="cursor:pointer" onclick="window._gotoPage('${page}')">
     <div style="font-size:28px;margin-bottom:10px">${icon}</div>
