@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GMBS 입점 브랜드 포털</title>
+  <title>게을러서못열뻔한상점(GMBS) 입점 브랜드 관리자</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,26 +21,29 @@
 <div id="app-screen" style="display:none">
 
   <!-- 사이드바 -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">GMBS</div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-text">GMBS</span>
+      <button class="sidebar-toggle" id="sidebar-toggle" title="사이드바 접기/펼치기">☰</button>
+    </div>
     <nav class="sidebar-nav" id="sidebar-nav"></nav>
     <div class="sidebar-footer">
       <div class="user-info">
         <div class="user-avatar" id="user-avatar">?</div>
-        <div>
+        <div class="user-info-text">
           <div class="user-name" id="user-name-text"></div>
           <div class="user-role" id="user-role-text"></div>
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn-signout" id="btn-account" style="flex:1">계정 설정</button>
-        <button class="btn-signout" id="btn-signout" style="flex:1">로그아웃</button>
+      <div class="sidebar-footer-btns">
+        <button class="btn-signout" id="btn-account">계정 설정</button>
+        <button class="btn-signout" id="btn-signout">로그아웃</button>
       </div>
     </div>
   </aside>
 
   <!-- 메인 -->
-  <div class="main-wrap">
+  <div class="main-wrap" id="main-wrap">
     <div class="topbar" id="topbar-title">대시보드</div>
     <div class="content" id="main-content"></div>
   </div>

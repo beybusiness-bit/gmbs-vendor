@@ -211,6 +211,29 @@ async function handleGoogleSignIn() {
 $('btn-signout').addEventListener('click',  () => signOut(auth));
 $('btn-account').addEventListener('click',  () => renderPage('account'));
 
+// ── 사이드바 접기/펼치기 ──
+(function initSidebarToggle() {
+  const sidebar  = document.getElementById('sidebar');
+  const mainWrap = document.getElementById('main-wrap');
+  const toggle   = document.getElementById('sidebar-toggle');
+  const COLLAPSED_KEY = 'gmbs_sidebar_collapsed';
+
+  function applyCollapsed(collapsed) {
+    sidebar.classList.toggle('collapsed', collapsed);
+    mainWrap.classList.toggle('sidebar-collapsed', collapsed);
+    toggle.title = collapsed ? '사이드바 펼치기' : '사이드바 접기';
+  }
+
+  const saved = localStorage.getItem(COLLAPSED_KEY) === '1';
+  applyCollapsed(saved);
+
+  toggle.addEventListener('click', () => {
+    const next = !sidebar.classList.contains('collapsed');
+    applyCollapsed(next);
+    localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0');
+  });
+})();
+
 // ── 인증 상태 감지 ──
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
@@ -333,20 +356,20 @@ function renderSidebar(memberStatus) {
     nav.innerHTML = `
       ${brandSwitcher}
       <div class="nav-section-label">브랜드 관리</div>
-      <div class="nav-item" data-page="dashboard"><span class="icon">🏠</span> 대시보드</div>
-      <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span> 브랜드 정보</div>
-      <div class="nav-item" data-page="persons"><span class="icon">👥</span> 담당자 관리</div>
-      <div class="nav-item" data-page="contracts"><span class="icon">📄</span> 계약서</div>
+      <div class="nav-item" data-page="dashboard"><span class="icon">🏠</span><span class="nav-label">대시보드</span></div>
+      <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span><span class="nav-label">브랜드 정보</span></div>
+      <div class="nav-item" data-page="persons"><span class="icon">👥</span><span class="nav-label">담당자 관리</span></div>
+      <div class="nav-item" data-page="contracts"><span class="icon">📄</span><span class="nav-label">계약서</span></div>
       <div class="nav-section-label">상품·정산</div>
-      <div class="nav-item" data-page="products"><span class="icon">📦</span> 상품 관리</div>
-      <div class="nav-item" data-page="inventory"><span class="icon">📊</span> 재고·판매 조회</div>
-      <div class="nav-item" data-page="settlements"><span class="icon">💰</span> 정산 조회</div>
+      <div class="nav-item" data-page="products"><span class="icon">📦</span><span class="nav-label">상품 관리</span></div>
+      <div class="nav-item" data-page="inventory"><span class="icon">📊</span><span class="nav-label">재고·판매 조회</span></div>
+      <div class="nav-item" data-page="settlements"><span class="icon">💰</span><span class="nav-label">정산 조회</span></div>
       <div class="nav-section-label">안내</div>
-      <div class="nav-item" data-page="notices"><span class="icon">📢</span> 공지사항</div>
-      <div class="nav-item" data-page="faq-page"><span class="icon">❓</span> 자주하는 질문</div>
-      <div class="nav-item" data-page="inquiries"><span class="icon">💬</span> 1:1 문의하기</div>
+      <div class="nav-item" data-page="notices"><span class="icon">📢</span><span class="nav-label">공지사항</span></div>
+      <div class="nav-item" data-page="faq-page"><span class="icon">❓</span><span class="nav-label">자주하는 질문</span></div>
+      <div class="nav-item" data-page="inquiries"><span class="icon">💬</span><span class="nav-label">1:1 문의하기</span></div>
       <div class="nav-section-label">브랜드 추가</div>
-      <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span> 새 브랜드 담당 추가</div>
+      <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span><span class="nav-label">새 브랜드 담당 추가</span></div>
     `;
 
     // 브랜드 스위처 버튼 이벤트
@@ -360,12 +383,12 @@ function renderSidebar(memberStatus) {
   } else {
     nav.innerHTML = `
       <div class="nav-section-label">브랜드 관리</div>
-      <div class="nav-item" data-page="brand-list"><span class="icon">🏷️</span> 담당 브랜드 목록</div>
-      <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span> 새 브랜드 담당 합류/등록</div>
+      <div class="nav-item" data-page="brand-list"><span class="icon">🏷️</span><span class="nav-label">담당 브랜드 목록</span></div>
+      <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span><span class="nav-label">새 브랜드 담당 합류/등록</span></div>
       <div class="nav-section-label">안내</div>
-      <div class="nav-item" data-page="notices"><span class="icon">📢</span> 공지사항</div>
-      <div class="nav-item" data-page="faq-page"><span class="icon">❓</span> 자주하는 질문</div>
-      <div class="nav-item" data-page="inquiries"><span class="icon">💬</span> 1:1 문의하기</div>
+      <div class="nav-item" data-page="notices"><span class="icon">📢</span><span class="nav-label">공지사항</span></div>
+      <div class="nav-item" data-page="faq-page"><span class="icon">❓</span><span class="nav-label">자주하는 질문</span></div>
+      <div class="nav-item" data-page="inquiries"><span class="icon">💬</span><span class="nav-label">1:1 문의하기</span></div>
     `;
   }
 
@@ -934,14 +957,10 @@ const GOOGLE_SVG = `<svg width="18" height="18" viewBox="0 0 18 18" fill="none">
 async function renderPublicLanding() {
   loginScreen.innerHTML = '';
 
-  // 헤더
+  // 헤더 (로고만, 로그인 버튼은 본문 카드에만)
   const header = document.createElement('div');
   header.className = 'landing-header';
-  header.innerHTML = `
-    <div class="landing-logo">GMBS</div>
-    <button class="btn btn-primary" id="lnd-login" style="width:auto;padding:9px 20px;font-size:14px">
-      ${GOOGLE_SVG} 로그인 / 시작하기
-    </button>`;
+  header.innerHTML = `<div class="landing-logo">게을러서못열뻔한상점(GMBS)</div>`;
   loginScreen.appendChild(header);
 
   // 본문 영역
@@ -951,8 +970,6 @@ async function renderPublicLanding() {
 
   // 로딩 중 표시
   body.innerHTML = '<div style="text-align:center;padding:60px 0"><div class="spinner" style="margin:0 auto 12px"></div><p style="color:var(--gray-400);font-size:14px">안내 내용을 불러오는 중...</p></div>';
-
-  header.querySelector('#lnd-login').addEventListener('click', () => handleGoogleSignIn());
 
   // onboarding_cards(public) + faq_items 병렬 로드
   let cards = [], faqs = [];
@@ -978,8 +995,8 @@ async function renderPublicLanding() {
     // 카드 없으면 간단한 로그인 카드
     body.innerHTML = `
       <div class="login-card" style="margin-top:48px">
-        <div class="login-logo">GMBS</div>
-        <div class="login-sub">입점 브랜드 포털</div>
+        <div class="login-logo">게을러서못열뻔한상점(GMBS)</div>
+        <div class="login-sub">입점 브랜드 관리자</div>
         <button class="btn btn-primary" id="lnd-login2" style="margin-top:8px">${GOOGLE_SVG} 구글로 로그인 / 시작하기</button>
         <div id="login-error" style="color:var(--danger);font-size:13px;margin-top:14px;min-height:18px"></div>
       </div>`;

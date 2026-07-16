@@ -1,6 +1,6 @@
 import {
-  db, collection, query, where, orderBy, getDocs,
-  addDoc, doc, updateDoc, serverTimestamp,
+  db, collection, query, where, getDocs,
+  addDoc, serverTimestamp,
 } from '../firebase-init.js';
 
 function fmtTs(ts) {
@@ -16,17 +16,14 @@ function statusBadge(status) {
 }
 
 export async function renderInquiries({ userDoc, user, container, showModal, closeModal }) {
-  const brandId = userDoc?.brand_id;
-
   container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
 
-  const q = query(
-    collection(db, 'inquiries'),
-    where('author_uid', '==', user.uid),
-    orderBy('created_at', 'desc'),
-  );
+  // orderBy 없이 where만 → 복합 인덱스 불필요, 클라이언트에서 정렬
+  const q = query(collection(db, 'inquiries'), where('author_uid', '==', user.uid));
   const snap = await getDocs(q);
-  const inquiries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const inquiries = snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.created_at?.toMillis?.() || 0) - (a.created_at?.toMillis?.() || 0));
 
   container.innerHTML = `
     <div style="max-width:720px">
