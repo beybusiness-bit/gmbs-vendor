@@ -716,7 +716,7 @@ async function renderPendingFull(container) {
       card.className = 'card';
       card.style.marginBottom = '12px';
 
-      const canCancel = item.type === 'join' && item.status === STATUS.SUBMITTED;
+      const canCancel = item.status === STATUS.SUBMITTED;
       const brandLabel = item.brand_name || item.target_brand_name || item.target_brand_id || '-';
 
       card.innerHTML = `
@@ -734,9 +734,10 @@ async function renderPendingFull(container) {
         </div>`;
 
       if (canCancel) {
+        const collName = item.type === 'join' ? 'brand_join_requests' : 'brand_applications';
         card.querySelector('.btn-cancel-join').addEventListener('click', async () => {
-          if (!confirm(`'${brandLabel}' 합류 신청을 취소하시겠습니까?`)) return;
-          await deleteDoc(doc(db, 'brand_join_requests', item.id));
+          if (!confirm(`'${brandLabel}' 신청을 취소하시겠습니까?`)) return;
+          await deleteDoc(doc(db, collName, item.id));
           all.splice(all.indexOf(item), 1);
           renderCards(all);
         });

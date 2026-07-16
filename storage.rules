@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // 브랜드 신청 사진 — 로그인한 본인만 업로드, 읽기는 로그인 사용자 전체
+    match /brand_applications/{fileName} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && fileName.matches(request.auth.uid + '_.*')
+                   && request.resource.size < 5 * 1024 * 1024   // 5MB
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // 브랜드 정보 사진 — 해당 브랜드 담당자만 업로드
+    match /brands/{brandId}/{fileName} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}
