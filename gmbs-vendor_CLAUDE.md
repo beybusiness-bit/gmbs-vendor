@@ -438,7 +438,7 @@ Firebase 첫 설정이라면: `webapp-builder` 스킬 `references/firebase-setup
 3단계 브랜드 연결 갈래(신규 일반회원 대상 "기존 브랜드 담당자로 연결" vs "새 브랜드 등록" 선택 화면, `brand_join_requests`/`brand_applications` 제출, 본인 신청 현황 조회) — ✅ 완료 (1단계와 통합 구현)
 4단계 브랜드 정보 조회/수정(브랜드회원) — ✅ 완료 (pages/brand-info.js — 연락처/이메일/주소/소개 수정 가능, 사업자번호 등 admin 전용 필드는 읽기전용)
 5단계 담당자(Person) 관리(본인 브랜드 범위) — ✅ 완료 (pages/persons.js — 목록 조회, 본인 수정, 신규 추가 + vendor_accounts 초대됨 자동 생성, 이중 이메일 입력)
-6단계 계약 다운로드 — ✅ 완료 (pages/contracts.js — 목록 + 파일 URL 다운로드)
+6단계 **전자계약 상태 조회** — ✅ 완료 (pages/contracts.js — 상태 배지 표시, 파일 다운로드 없음. 서명은 유캔사인 카카오톡/이메일 알림으로 진행, 완료 파일은 유캔사인이 이메일 자동 발송)
 7단계 상품 등록/수정요청/상태조회 — ✅ 완료 (pages/products.js — 신규 등록 신청, 수정 요청, 거절 사유 표시, 공급가·수수료율 읽기전용)
 8단계 재고/판매 조회(읽기전용, gmbs-functions 완성 전까지 "준비중" 처리) — ✅ 완료 (pages/inventory.js — 데이터 있으면 테이블, 없으면 준비중 안내)
 9단계 정산 조회(읽기전용) — ✅ 완료 (pages/settlements.js — 데이터 있으면 연도별 합계+테이블, 없으면 준비중)
