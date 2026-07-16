@@ -22,7 +22,7 @@ export async function renderInquiries({ userDoc, user, container, showModal, clo
 
   const q = query(
     collection(db, 'inquiries'),
-    where('brand_id', '==', brandId || user.uid),
+    where('author_uid', '==', user.uid),
     orderBy('created_at', 'desc'),
   );
   const snap = await getDocs(q);
