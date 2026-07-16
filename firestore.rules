@@ -118,8 +118,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ── inventory 컬렉션 ──
-    match /inventory/{docId} {
+    // ── inventory_transactions 컬렉션 (gmbs-functions가 생성, vendor는 read-only) ──
+    match /inventory_transactions/{docId} {
+      allow read: if request.auth != null
+        && resource.data.brand_id != null
+        && isBrandMember(resource.data.brand_id);
+      allow write: if false;
+    }
+
+    // ── sales 컬렉션 (gmbs-functions가 생성, vendor는 read-only) ──
+    match /sales/{docId} {
       allow read: if request.auth != null
         && resource.data.brand_id != null
         && isBrandMember(resource.data.brand_id);
