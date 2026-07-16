@@ -368,10 +368,9 @@ async function openJoinModal() {
     <div class="modal-title">기존 브랜드 담당자로 합류 신청</div>
     <div class="form-group">
       <label class="form-label">브랜드명 검색 <span style="color:var(--danger)">*</span></label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input id="join-brand-search" class="form-input" type="text" placeholder="브랜드명을 입력하세요" style="flex:1;min-width:0;width:auto">
-        <button class="btn btn-outline" id="btn-brand-search" style="white-space:nowrap;flex-shrink:0;min-width:64px">검색</button>
-      </div>
+      <input id="join-brand-search" type="text" placeholder="브랜드명을 입력하세요"
+        style="display:block;width:100%;box-sizing:border-box;padding:11px 14px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;outline:none;transition:border-color .15s"
+        onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--gray-200)'">
       <div id="join-brand-results" style="margin-top:6px"></div>
       <div id="join-brand-selected" style="display:none;margin-top:8px;padding:10px 12px;background:var(--primary-light,#eff6ff);border-radius:8px;font-size:13px;font-weight:600;color:var(--primary)"></div>
     </div>
@@ -446,12 +445,19 @@ async function openJoinModal() {
   }
 
   let searchTimer;
-  $('btn-brand-search').addEventListener('click', searchBrands);
-  $('join-brand-search').addEventListener('input', () => {
+  let isComposing = false;
+  const searchInput = $('join-brand-search');
+  searchInput.addEventListener('compositionstart', () => { isComposing = true; });
+  searchInput.addEventListener('compositionend', () => {
+    isComposing = false;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(searchBrands, 100);
+  });
+  searchInput.addEventListener('input', () => {
+    if (isComposing) return;
     clearTimeout(searchTimer);
     searchTimer = setTimeout(searchBrands, 300);
   });
-  $('join-brand-search').addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(searchTimer); searchBrands(); } });
 
   $('btn-join-submit').addEventListener('click', async () => {
     const phone = $('join-phone').value.trim();
