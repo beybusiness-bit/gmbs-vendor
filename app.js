@@ -348,62 +348,110 @@ function renderBranchSelect(container) {
   $('bc-new').addEventListener('click',  openApplyModal);
 }
 
+// ── 역할/직책 선택지 ──
+const ROLE_OPTIONS = ['대표', '운영 담당자', 'MD', '마케팅 담당자', '영업 담당자', '기타'];
+function roleSelectHTML(id, selected = '') {
+  return `<select id="${id}" class="form-input form-select">
+    <option value="">선택하세요</option>
+    ${ROLE_OPTIONS.map(r => `<option value="${r}"${selected === r ? ' selected' : ''}>${r}</option>`).join('')}
+  </select>`;
+}
+
 // ── 합류 신청 모달 ──
 async function openJoinModal() {
-  const brandsSnap = await getDocs(collection(db, 'brands'));
-  const brandOptions = brandsSnap.docs.map(d =>
-    `<option value="${d.id}">${d.data().brand_name || d.id}</option>`
-  ).join('');
+  const ud = currentUserDoc || {};
+  let selectedBrandId = '';
+  let selectedBrandName = '';
+  let allBrands = [];
 
   showModal(`
     <div class="modal-title">기존 브랜드 담당자로 합류 신청</div>
     <div class="form-group">
-      <label class="form-label">소속 브랜드 선택 <span style="color:var(--danger)">*</span></label>
-      <select id="join-brand" class="form-input form-select">
-        <option value="">브랜드를 선택하세요</option>
-        ${brandOptions}
-      </select>
+      <label class="form-label">브랜드명 검색 <span style="color:var(--danger)">*</span></label>
+      <div style="display:flex;gap:8px">
+        <input id="join-brand-search" class="form-input" type="text" placeholder="브랜드명을 입력하세요" style="flex:1">
+        <button class="btn btn-outline" id="btn-brand-search" style="white-space:nowrap">검색</button>
+      </div>
+      <div id="join-brand-results" style="margin-top:6px"></div>
+      <div id="join-brand-selected" style="display:none;margin-top:8px;padding:10px 12px;background:var(--primary-light,#eff6ff);border-radius:8px;font-size:13px;font-weight:600;color:var(--primary)"></div>
     </div>
     <div class="form-group">
       <label class="form-label">연락처 <span style="color:var(--danger)">*</span></label>
-      <input id="join-phone" class="form-input" type="tel" placeholder="010-0000-0000">
+      <input id="join-phone" class="form-input" type="tel" placeholder="010-0000-0000" value="${ud.phone || ''}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">연락용 이메일</label>
+      <input id="join-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
       <label class="form-label">역할/직책</label>
-      <input id="join-role" class="form-input" type="text" placeholder="예: 마케팅 담당자">
+      ${roleSelectHTML('join-role')}
     </div>
     <div id="join-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-join-submit" style="margin-top:8px">신청하기</button>
   `);
 
+  // 브랜드 검색 로직
+  async function searchBrands() {
+    const term = ($('join-brand-search').value || '').trim().toLowerCase();
+    if (!term) { $('join-brand-results').innerHTML = ''; return; }
+    if (allBrands.length === 0) {
+      const snap = await getDocs(collection(db, 'brands'));
+      allBrands = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    const matched = allBrands.filter(b => (b.brand_name || '').toLowerCase().includes(term));
+    if (matched.length === 0) {
+      $('join-brand-results').innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">검색 결과가 없습니다.</div>';
+      return;
+    }
+    $('join-brand-results').innerHTML = matched.slice(0, 10).map(b =>
+      `<div class="brand-search-item" data-id="${b.id}" data-name="${b.brand_name || ''}"
+        style="padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:13px;font-weight:600;transition:background 0.1s"
+        onmouseover="this.style.background='var(--gray-100)'" onmouseout="this.style.background=''"
+      >${b.brand_name || b.id}</div>`
+    ).join('');
+    $('join-brand-results').querySelectorAll('.brand-search-item').forEach(el => {
+      el.addEventListener('click', () => {
+        selectedBrandId   = el.dataset.id;
+        selectedBrandName = el.dataset.name;
+        $('join-brand-results').innerHTML = '';
+        $('join-brand-search').value = '';
+        const sel = $('join-brand-selected');
+        sel.textContent = '✓ ' + selectedBrandName;
+        sel.style.display = 'block';
+      });
+    });
+  }
+
+  $('btn-brand-search').addEventListener('click', searchBrands);
+  $('join-brand-search').addEventListener('keydown', e => { if (e.key === 'Enter') searchBrands(); });
+
   $('btn-join-submit').addEventListener('click', async () => {
-    const brandId = $('join-brand').value;
-    const phone   = $('join-phone').value.trim();
-    const errEl   = $('join-error');
-    if (!brandId) { errEl.textContent = '브랜드를 선택해 주세요.'; return; }
-    if (!phone)   { errEl.textContent = '연락처를 입력해 주세요.'; return; }
+    const phone = $('join-phone').value.trim();
+    const errEl = $('join-error');
+    if (!selectedBrandId)  { errEl.textContent = '브랜드를 검색해서 선택해 주세요.'; return; }
+    if (!phone)            { errEl.textContent = '연락처를 입력해 주세요.'; return; }
 
     $('btn-join-submit').disabled = true;
     $('btn-join-submit').textContent = '신청 중...';
 
-    const brandName = brandsSnap.docs.find(d => d.id === brandId)?.data()?.brand_name || '';
     await addDoc(collection(db, 'brand_join_requests'), {
-      applicant_uid:   currentUser.uid,
-      applicant_email: normalizeEmail(currentUser.email),
-      applicant_name:  currentUser.displayName || '',
-      applicant_phone: phone,
-      applicant_role:  $('join-role').value.trim(),
-      target_brand_id: brandId,
-      target_brand_name: brandName,
-      status:          STATUS.SUBMITTED,
-      submitted_at:    serverTimestamp(),
+      applicant_uid:         currentUser.uid,
+      applicant_email:       normalizeEmail(currentUser.email),
+      applicant_name:        currentUser.displayName || '',
+      applicant_phone:       phone,
+      applicant_contact_email: $('join-contact-email').value.trim(),
+      applicant_role:        $('join-role').value,
+      target_brand_id:       selectedBrandId,
+      target_brand_name:     selectedBrandName,
+      status:                STATUS.SUBMITTED,
+      submitted_at:          serverTimestamp(),
     });
 
-    // EmailJS: 합류 신청 접수 확인 메일
     sendJoinReceivedEmail({
       toEmail:   normalizeEmail(currentUser.email),
       toName:    currentUser.displayName || '',
-      brandName,
+      brandName: selectedBrandName,
     });
 
     closeModal();
@@ -413,6 +461,7 @@ async function openJoinModal() {
 
 // ── 새 브랜드 등록 신청 모달 ──
 async function openApplyModal() {
+  const ud = currentUserDoc || {};
   showModal(`
     <div class="modal-title">새 브랜드 입점 신청</div>
     <div class="form-group">
@@ -429,11 +478,15 @@ async function openApplyModal() {
     </div>
     <div class="form-group">
       <label class="form-label">연락처 <span style="color:var(--danger)">*</span></label>
-      <input id="app-phone" class="form-input" type="tel" placeholder="010-0000-0000">
+      <input id="app-phone" class="form-input" type="tel" placeholder="010-0000-0000" value="${ud.phone || ''}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">연락용 이메일</label>
+      <input id="app-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
       <label class="form-label">역할/직책</label>
-      <input id="app-role" class="form-input" type="text" placeholder="예: 대표, MD 담당자">
+      ${roleSelectHTML('app-role')}
     </div>
     <div id="app-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-app-submit" style="margin-top:8px">신청하기</button>
@@ -452,19 +505,19 @@ async function openApplyModal() {
     $('btn-app-submit').textContent = '신청 중...';
 
     await addDoc(collection(db, 'brand_applications'), {
-      applicant_uid:   currentUser.uid,
-      applicant_email: normalizeEmail(currentUser.email),
-      applicant_name:  currentUser.displayName || '',
-      applicant_phone: phone,
-      applicant_role:  $('app-role').value.trim(),
-      brand_name:      brandName,
-      biz_no:          bizNo,
-      ceo_name:        $('app-ceo').value.trim(),
-      status:          STATUS.SUBMITTED,
-      submitted_at:    serverTimestamp(),
+      applicant_uid:           currentUser.uid,
+      applicant_email:         normalizeEmail(currentUser.email),
+      applicant_name:          currentUser.displayName || '',
+      applicant_phone:         phone,
+      applicant_contact_email: $('app-contact-email').value.trim(),
+      applicant_role:          $('app-role').value,
+      brand_name:              brandName,
+      biz_no:                  bizNo,
+      ceo_name:                $('app-ceo').value.trim(),
+      status:                  STATUS.SUBMITTED,
+      submitted_at:            serverTimestamp(),
     });
 
-    // EmailJS: 신청 접수 확인 메일
     sendApplicationReceivedEmail({
       toEmail:   normalizeEmail(currentUser.email),
       toName:    currentUser.displayName || '',
