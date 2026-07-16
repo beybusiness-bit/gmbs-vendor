@@ -1,7 +1,7 @@
 import {
   auth, db, googleProvider,
   signInWithPopup, signOut, onAuthStateChanged,
-  doc, getDoc, setDoc, addDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
+  doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
 } from './firebase-init.js';
 import { renderBrandInfo }    from './pages/brand-info.js';
 import { renderPersons }      from './pages/persons.js';
@@ -44,6 +44,20 @@ function showApp()    { loginScreen.style.display = 'none'; appScreen.style.disp
 // ── 현재 사용자 상태 ──
 let currentUser    = null;
 let currentUserDoc = null;
+let activeBrandId  = null; // 현재 활성 브랜드 (다중 브랜드 지원)
+
+// 사용자 문서에서 소속 브랜드 ID 목록 반환 (brand_ids 배열 우선, brand_id 단일값 폴백)
+function getUserBrandIds(userDoc) {
+  if (!userDoc) return [];
+  if (Array.isArray(userDoc.brand_ids) && userDoc.brand_ids.length) return userDoc.brand_ids;
+  if (userDoc.brand_id) return [userDoc.brand_id];
+  return [];
+}
+
+function setActiveBrand(brandId) {
+  activeBrandId = brandId;
+  if (currentUserDoc) currentUserDoc.brand_id = brandId; // 기존 코드 호환
+}
 
 // ── 구글 로그인 ──
 async function handleGoogleSignIn() {
@@ -121,6 +135,10 @@ onAuthStateChanged(auth, async (user) => {
 
 // ── 앱 렌더링 ──
 function renderApp(memberStatus, isNewLink = false) {
+  if (memberStatus === STATUS.BRAND) {
+    const ids = getUserBrandIds(currentUserDoc);
+    setActiveBrand(ids[0] || null);
+  }
   updateSidebarUser(memberStatus);
   if (isNewLink) {
     renderPage('welcome');
@@ -157,7 +175,17 @@ function updateSidebarUser(memberStatus) {
 function renderSidebar(memberStatus) {
   const nav = $('sidebar-nav');
   if (memberStatus === STATUS.BRAND) {
+    const brandIds = getUserBrandIds(currentUserDoc);
+    const brandSwitcher = brandIds.length > 1
+      ? `<div id="brand-switcher" style="margin:0 0 8px;padding:8px 12px;background:var(--gray-50,#f9fafb);border-radius:8px;font-size:12px">
+           <div style="color:var(--gray-500);margin-bottom:4px">활성 브랜드</div>
+           <select id="active-brand-select" style="width:100%;font-size:13px;font-weight:600;border:none;background:transparent;cursor:pointer;outline:none">
+             ${brandIds.map(id => `<option value="${id}" ${id === activeBrandId ? 'selected' : ''}>${id}</option>`).join('')}
+           </select>
+         </div>`
+      : '';
     nav.innerHTML = `
+      ${brandSwitcher}
       <div class="nav-section-label">브랜드 관리</div>
       <div class="nav-item" data-page="dashboard"><span class="icon">🏠</span> 대시보드</div>
       <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span> 브랜드 정보</div>
@@ -173,6 +201,13 @@ function renderSidebar(memberStatus) {
       <div class="nav-section-label">내 계정</div>
       <div class="nav-item" data-page="account"><span class="icon">⚙️</span> 계정 설정</div>
     `;
+    const sel = document.getElementById('active-brand-select');
+    if (sel) {
+      sel.addEventListener('change', () => {
+        setActiveBrand(sel.value);
+        renderPage('dashboard');
+      });
+    }
   } else {
     nav.innerHTML = `
       <div class="nav-section-label">신청 현황</div>
@@ -462,8 +497,10 @@ async function openJoinModal() {
   $('btn-join-submit').addEventListener('click', async () => {
     const phone = $('join-phone').value.trim();
     const errEl = $('join-error');
+    const role = $('join-role').value;
     if (!selectedBrandId)  { errEl.textContent = '브랜드를 검색해서 선택해 주세요.'; return; }
     if (!phone)            { errEl.textContent = '연락처를 입력해 주세요.'; return; }
+    if (!role)             { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
 
     $('btn-join-submit').disabled = true;
     $('btn-join-submit').textContent = '신청 중...';
@@ -474,7 +511,7 @@ async function openJoinModal() {
       applicant_name:        currentUser.displayName || '',
       applicant_phone:       phone,
       applicant_contact_email: $('join-contact-email').value.trim(),
-      applicant_role:        $('join-role').value,
+      applicant_role:        role,
       target_brand_id:       selectedBrandId,
       target_brand_name:     selectedBrandName,
       status:                STATUS.SUBMITTED,
@@ -594,40 +631,65 @@ async function renderPendingFull(container) {
     return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
   };
 
-  container.innerHTML = `
-    <div style="max-width:640px">
-      <div style="margin-bottom:24px">
-        <h2 style="font-size:18px;font-weight:700">신청 현황</h2>
-        <p style="font-size:13px;color:var(--gray-600);margin-top:4px">
-          승인되면 자동으로 브랜드 포털이 열립니다. 페이지를 새로고침해 주세요.
-        </p>
-      </div>
-      ${all.map(item => `
-        <div class="card" style="margin-bottom:12px">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start">
-            <div>
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                ${statusBadge(item.status)}
-                <span class="badge badge-gray">${item.type === 'apply' ? '새 브랜드 등록' : '브랜드 합류'}</span>
-              </div>
-              <div style="font-weight:700;font-size:15px">
-                ${item.brand_name || item.target_brand_name || item.target_brand_id || '-'}
-              </div>
-              <div style="font-size:12px;color:var(--gray-400);margin-top:4px">
-                신청일: ${fmt(item.submitted_at)}
-              </div>
-              ${item.rejection_reason ? `<div style="margin-top:8px;font-size:13px;color:var(--danger)">
-                거절 사유: ${item.rejection_reason}
-              </div>` : ''}
-            </div>
-          </div>
-        </div>`).join('')}
-      <div style="margin-top:16px;text-align:center">
-        <button class="btn btn-outline" onclick="location.reload()" style="width:auto;padding:10px 24px">
-          🔄 새로고침
-        </button>
-      </div>
+  const wrap = document.createElement('div');
+  wrap.style.maxWidth = '640px';
+  wrap.innerHTML = `
+    <div style="margin-bottom:24px">
+      <h2 style="font-size:18px;font-weight:700">신청 현황</h2>
+      <p style="font-size:13px;color:var(--gray-600);margin-top:4px">
+        승인되면 자동으로 브랜드 포털이 열립니다. 페이지를 새로고침해 주세요.
+      </p>
+    </div>
+    <div id="pending-cards"></div>
+    <div style="margin-top:16px;text-align:center">
+      <button class="btn btn-outline" id="btn-pending-refresh" style="width:auto;padding:10px 24px">
+        🔄 새로고침
+      </button>
     </div>`;
+  container.innerHTML = '';
+  container.appendChild(wrap);
+  document.getElementById('btn-pending-refresh').addEventListener('click', () => location.reload());
+
+  const cardsEl = document.getElementById('pending-cards');
+
+  function renderCards(items) {
+    cardsEl.innerHTML = '';
+    if (items.length === 0) { renderPage('branch-select'); return; }
+    items.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.marginBottom = '12px';
+
+      const canCancel = item.type === 'join' && item.status === STATUS.SUBMITTED;
+      const brandLabel = item.brand_name || item.target_brand_name || item.target_brand_id || '-';
+
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              ${statusBadge(item.status)}
+              <span class="badge badge-gray">${item.type === 'apply' ? '새 브랜드 등록' : '브랜드 합류'}</span>
+            </div>
+            <div style="font-weight:700;font-size:15px">${brandLabel}</div>
+            <div style="font-size:12px;color:var(--gray-400);margin-top:4px">신청일: ${fmt(item.submitted_at)}</div>
+            ${item.rejection_reason ? `<div style="margin-top:8px;font-size:13px;color:var(--danger)">거절 사유: ${item.rejection_reason}</div>` : ''}
+          </div>
+          ${canCancel ? `<button class="btn btn-outline btn-cancel-join" style="margin-left:12px;flex-shrink:0;color:var(--danger);border-color:var(--danger);font-size:12px;padding:6px 12px">신청 취소</button>` : ''}
+        </div>`;
+
+      if (canCancel) {
+        card.querySelector('.btn-cancel-join').addEventListener('click', async () => {
+          if (!confirm(`'${brandLabel}' 합류 신청을 취소하시겠습니까?`)) return;
+          await deleteDoc(doc(db, 'brand_join_requests', item.id));
+          all.splice(all.indexOf(item), 1);
+          renderCards(all);
+        });
+      }
+      cardsEl.appendChild(card);
+    });
+  }
+
+  renderCards(all);
 }
 
 // ── 환영(자동연결) 화면 ──
