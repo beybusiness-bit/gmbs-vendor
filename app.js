@@ -1,7 +1,8 @@
 import {
-  auth, db, googleProvider,
+  auth, db, storage, googleProvider,
   signInWithPopup, signOut, onAuthStateChanged,
   doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
+  ref, uploadBytes, getDownloadURL,
 } from './firebase-init.js';
 import { renderBrandInfo }    from './pages/brand-info.js';
 import { renderPersons }      from './pages/persons.js';
@@ -414,11 +415,11 @@ async function openJoinModal() {
       <input id="join-phone" class="form-input" type="tel" placeholder="010-0000-0000" value="${ud.phone || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">연락용 이메일</label>
+      <label class="form-label">연락용 이메일 <span style="color:var(--danger)">*</span></label>
       <input id="join-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">역할/직책</label>
+      <label class="form-label">역할/직책 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('join-role')}
     </div>
     <div id="join-error" class="form-error"></div>
@@ -495,11 +496,13 @@ async function openJoinModal() {
   });
 
   $('btn-join-submit').addEventListener('click', async () => {
-    const phone = $('join-phone').value.trim();
-    const errEl = $('join-error');
-    const role = $('join-role').value;
+    const phone        = $('join-phone').value.trim();
+    const contactEmail = $('join-contact-email').value.trim();
+    const role         = $('join-role').value;
+    const errEl        = $('join-error');
     if (!selectedBrandId)  { errEl.textContent = '브랜드를 검색해서 선택해 주세요.'; return; }
     if (!phone)            { errEl.textContent = '연락처를 입력해 주세요.'; return; }
+    if (!contactEmail)     { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
     if (!role)             { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
 
     $('btn-join-submit').disabled = true;
@@ -510,7 +513,7 @@ async function openJoinModal() {
       applicant_email:       normalizeEmail(currentUser.email),
       applicant_name:        currentUser.displayName || '',
       applicant_phone:       phone,
-      applicant_contact_email: $('join-contact-email').value.trim(),
+      applicant_contact_email: contactEmail,
       applicant_role:        role,
       target_brand_id:       selectedBrandId,
       target_brand_name:     selectedBrandName,
@@ -534,56 +537,93 @@ async function openApplyModal() {
   const ud = currentUserDoc || {};
   showModal(`
     <div class="modal-title">새 브랜드 입점 신청</div>
+    <div style="font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.04em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--gray-100)">기본 정보</div>
     <div class="form-group">
       <label class="form-label">브랜드명 <span style="color:var(--danger)">*</span></label>
       <input id="app-brand-name" class="form-input" type="text" placeholder="브랜드 이름을 입력하세요">
     </div>
     <div class="form-group">
-      <label class="form-label">사업자 등록번호 <span style="color:var(--danger)">*</span></label>
-      <input id="app-biz-no" class="form-input" type="text" placeholder="000-00-00000">
+      <label class="form-label">브랜드 대표 사진</label>
+      <input id="app-brand-photo" type="file" accept="image/*"
+        style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer">
+      <div id="app-photo-preview" style="display:none;margin-top:8px">
+        <img id="app-photo-img" style="max-width:120px;max-height:120px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)">
+      </div>
     </div>
     <div class="form-group">
-      <label class="form-label">대표자명</label>
-      <input id="app-ceo" class="form-input" type="text" placeholder="대표자 이름">
+      <label class="form-label">브랜드 간단 소개</label>
+      <textarea id="app-brand-desc" class="form-input" placeholder="브랜드를 간략히 소개해 주세요" rows="3" style="resize:vertical"></textarea>
     </div>
+    <div class="form-group">
+      <label class="form-label">브랜드 대표 링크</label>
+      <input id="app-brand-link" class="form-input" type="url" placeholder="홈페이지 또는 SNS URL">
+    </div>
+    <div style="font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.04em;margin:20px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--gray-100)">담당자 정보</div>
     <div class="form-group">
       <label class="form-label">연락처 <span style="color:var(--danger)">*</span></label>
       <input id="app-phone" class="form-input" type="tel" placeholder="010-0000-0000" value="${ud.phone || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">연락용 이메일</label>
+      <label class="form-label">연락용 이메일 <span style="color:var(--danger)">*</span></label>
       <input id="app-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">역할/직책</label>
+      <label class="form-label">역할/직책 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('app-role')}
     </div>
     <div id="app-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-app-submit" style="margin-top:8px">신청하기</button>
   `);
 
+  // 사진 미리보기
+  $('app-brand-photo').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      $('app-photo-img').src = ev.target.result;
+      $('app-photo-preview').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  });
+
   $('btn-app-submit').addEventListener('click', async () => {
-    const brandName = $('app-brand-name').value.trim();
-    const bizNo     = $('app-biz-no').value.trim();
-    const phone     = $('app-phone').value.trim();
-    const errEl     = $('app-error');
-    if (!brandName) { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
-    if (!bizNo)     { errEl.textContent = '사업자 등록번호를 입력해 주세요.'; return; }
-    if (!phone)     { errEl.textContent = '연락처를 입력해 주세요.'; return; }
+    const brandName    = $('app-brand-name').value.trim();
+    const phone        = $('app-phone').value.trim();
+    const contactEmail = $('app-contact-email').value.trim();
+    const role         = $('app-role').value;
+    const errEl        = $('app-error');
+
+    if (!brandName)    { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
+    if (!phone)        { errEl.textContent = '연락처를 입력해 주세요.'; return; }
+    if (!contactEmail) { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
+    if (!role)         { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
+
+    // 사진 업로드 (선택)
+    let photoUrl = '';
+    const photoFile = $('app-brand-photo').files[0];
+    if (photoFile) {
+      try {
+        const photoRef = ref(storage, `brand_applications/${currentUser.uid}_${Date.now()}_${photoFile.name}`);
+        await uploadBytes(photoRef, photoFile);
+        photoUrl = await getDownloadURL(photoRef);
+      } catch (_) { /* 사진 업로드 실패해도 신청은 계속 진행 */ }
+    }
 
     await addDoc(collection(db, 'brand_applications'), {
       applicant_uid:           currentUser.uid,
       applicant_email:         normalizeEmail(currentUser.email),
       applicant_name:          currentUser.displayName || '',
       applicant_phone:         phone,
-      applicant_contact_email: $('app-contact-email').value.trim(),
-      applicant_role:          $('app-role').value,
+      applicant_contact_email: contactEmail,
+      applicant_role:          role,
       brand_name:              brandName,
-      biz_no:                  bizNo,
-      ceo_name:                $('app-ceo').value.trim(),
+      brand_description:       $('app-brand-desc').value.trim(),
+      brand_link:              $('app-brand-link').value.trim(),
+      brand_photo_url:         photoUrl,
       status:                  STATUS.SUBMITTED,
       submitted_at:            serverTimestamp(),
     });
@@ -634,11 +674,16 @@ async function renderPendingFull(container) {
   const wrap = document.createElement('div');
   wrap.style.maxWidth = '640px';
   wrap.innerHTML = `
-    <div style="margin-bottom:24px">
-      <h2 style="font-size:18px;font-weight:700">신청 현황</h2>
-      <p style="font-size:13px;color:var(--gray-600);margin-top:4px">
-        승인되면 자동으로 브랜드 포털이 열립니다. 페이지를 새로고침해 주세요.
-      </p>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;gap:12px;flex-wrap:wrap">
+      <div>
+        <h2 style="font-size:18px;font-weight:700">신청 현황</h2>
+        <p style="font-size:13px;color:var(--gray-600);margin-top:4px">
+          승인되면 자동으로 브랜드 포털이 열립니다. 페이지를 새로고침해 주세요.
+        </p>
+      </div>
+      <button id="btn-new-apply" style="white-space:nowrap;padding:9px 16px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0">
+        + 새 신청하기
+      </button>
     </div>
     <div id="pending-cards"></div>
     <div style="margin-top:16px;text-align:center">
@@ -649,6 +694,17 @@ async function renderPendingFull(container) {
   container.innerHTML = '';
   container.appendChild(wrap);
   document.getElementById('btn-pending-refresh').addEventListener('click', () => location.reload());
+  document.getElementById('btn-new-apply').addEventListener('click', () => {
+    showModal(`
+      <div class="modal-title">새 신청 유형 선택</div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px">
+        <button class="btn btn-primary" id="btn-modal-join" style="margin-top:0">기존 브랜드 담당자로 합류</button>
+        <button class="btn btn-outline" id="btn-modal-apply" style="margin-top:0">새 브랜드 등록 신청</button>
+      </div>
+    `);
+    document.getElementById('btn-modal-join').addEventListener('click', () => { closeModal(); openJoinModal(); });
+    document.getElementById('btn-modal-apply').addEventListener('click', () => { closeModal(); openApplyModal(); });
+  });
 
   const cardsEl = document.getElementById('pending-cards');
 
@@ -674,7 +730,7 @@ async function renderPendingFull(container) {
             <div style="font-size:12px;color:var(--gray-400);margin-top:4px">신청일: ${fmt(item.submitted_at)}</div>
             ${item.rejection_reason ? `<div style="margin-top:8px;font-size:13px;color:var(--danger)">거절 사유: ${item.rejection_reason}</div>` : ''}
           </div>
-          ${canCancel ? `<button class="btn btn-outline btn-cancel-join" style="margin-left:12px;flex-shrink:0;color:var(--danger);border-color:var(--danger);font-size:12px;padding:6px 12px">신청 취소</button>` : ''}
+          ${canCancel ? `<button class="btn-cancel-join" style="margin-left:12px;flex-shrink:0;width:auto;padding:6px 14px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">신청 취소</button>` : ''}
         </div>`;
 
       if (canCancel) {
