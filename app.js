@@ -39,7 +39,12 @@ const appScreen     = $('app-screen');
 
 // ── 화면 전환 ──
 function showLoading(on) { loadingScreen.style.display = on ? 'flex' : 'none'; }
-function showLogin()  { loginScreen.style.display = 'flex'; appScreen.style.display = 'none'; showLoading(false); }
+function showLogin()  {
+  loginScreen.style.display = 'block';
+  appScreen.style.display = 'none';
+  showLoading(false);
+  renderPublicLanding();
+}
 function showApp()    { loginScreen.style.display = 'none'; appScreen.style.display = 'block'; showLoading(false); }
 
 // ── 현재 사용자 상태 ──
@@ -203,8 +208,6 @@ async function handleGoogleSignIn() {
   }
 }
 
-$('btn-login').addEventListener('click',    () => handleGoogleSignIn());
-$('btn-register').addEventListener('click', () => handleGoogleSignIn());
 $('btn-signout').addEventListener('click',  () => signOut(auth));
 
 // ── 인증 상태 감지 ──
@@ -287,7 +290,8 @@ async function checkApplicationStatus() {
   const appsQ = query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid));
   const joinQ = query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid));
   const [appsSnap, joinSnap] = await Promise.all([getDocs(appsQ), getDocs(joinQ)]);
-  renderPage((!appsSnap.empty || !joinSnap.empty) ? 'pending' : 'branch-select');
+  // 신청 내역 여부와 무관하게 member-onboarding 위저드를 먼저 보여준다
+  renderPage('member-onboarding');
 }
 
 // ── 사이드바 ──
@@ -332,6 +336,8 @@ function renderSidebar(memberStatus) {
       <div class="nav-item" data-page="inquiries"><span class="icon">💬</span> 문의하기</div>
       <div class="nav-section-label">내 계정</div>
       <div class="nav-item" data-page="account"><span class="icon">⚙️</span> 계정 설정</div>
+      <div class="nav-section-label">브랜드 추가</div>
+      <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span> 새 브랜드 담당 추가</div>
     `;
     const sel = document.getElementById('active-brand-select');
     if (sel) {
@@ -370,6 +376,7 @@ function setActiveNav(page) {
 const PAGE_TITLES = {
   dashboard:    '대시보드',
   'branch-select': '입점 신청',
+  'member-onboarding': '새 브랜드 담당 합류/등록',
   pending:      '신청 현황',
   welcome:      '환영합니다',
   'brand-info': '브랜드 정보',
@@ -401,6 +408,7 @@ async function renderPage(page) {
   switch (page) {
     case 'dashboard':     await renderDashboard(); break;
     case 'branch-select': renderBranchSelect(container); break;
+    case 'member-onboarding': await renderMemberOnboardingPage(container); break;
     case 'pending':       await renderPendingFull(container); break;
     case 'welcome':       container.innerHTML = renderWelcome(); break;
     case 'brand-info':    await renderBrandInfo(ctx()); break;
@@ -896,6 +904,214 @@ function renderWelcome() {
       <button class="btn btn-primary" style="max-width:200px;margin:28px auto 0"
         onclick="location.reload()">시작하기</button>
     </div>`;
+}
+
+// ── 구글 로그인 버튼 SVG ──
+const GOOGLE_SVG = `<svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+  <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+  <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+  <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+  <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+</svg>`;
+
+// ── 공개 랜딩 페이지 ──
+async function renderPublicLanding() {
+  loginScreen.innerHTML = '';
+
+  // 헤더
+  const header = document.createElement('div');
+  header.className = 'landing-header';
+  header.innerHTML = `
+    <div class="landing-logo">GMBS</div>
+    <button class="btn btn-primary" id="lnd-login" style="width:auto;padding:9px 20px;font-size:14px">
+      ${GOOGLE_SVG} 로그인 / 시작하기
+    </button>`;
+  loginScreen.appendChild(header);
+
+  // 본문 영역
+  const body = document.createElement('div');
+  body.className = 'landing-body';
+  loginScreen.appendChild(body);
+
+  // 로딩 중 표시
+  body.innerHTML = '<div style="text-align:center;padding:60px 0"><div class="spinner" style="margin:0 auto 12px"></div><p style="color:var(--gray-400);font-size:14px">안내 내용을 불러오는 중...</p></div>';
+
+  header.querySelector('#lnd-login').addEventListener('click', () => handleGoogleSignIn());
+
+  // onboarding_cards(public) + faq_items 병렬 로드
+  let cards = [], faqs = [];
+  try {
+    const [cardSnap, faqSnap] = await Promise.all([
+      getDocs(query(collection(db, 'onboarding_cards'), where('audience', '==', 'public'), where('active', '==', true), orderBy('order'))),
+      getDocs(query(collection(db, 'faq_items'), where('active', '==', true), orderBy('order'))),
+    ]);
+    cards = cardSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    faqs  = faqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (_) {}
+
+  body.innerHTML = '';
+
+  if (cards.length > 0) {
+    const wizEl = document.createElement('div');
+    body.appendChild(wizEl);
+    renderWizard(wizEl, cards, {
+      isPublic: true,
+      onLogin: () => handleGoogleSignIn(),
+    });
+  } else {
+    // 카드 없으면 간단한 로그인 카드
+    body.innerHTML = `
+      <div class="login-card" style="margin-top:48px">
+        <div class="login-logo">GMBS</div>
+        <div class="login-sub">입점 브랜드 포털</div>
+        <button class="btn btn-primary" id="lnd-login2" style="margin-top:8px">${GOOGLE_SVG} 구글로 로그인 / 시작하기</button>
+        <div id="login-error" style="color:var(--danger);font-size:13px;margin-top:14px;min-height:18px"></div>
+      </div>`;
+    body.querySelector('#lnd-login2').addEventListener('click', () => handleGoogleSignIn());
+  }
+
+  if (faqs.length > 0) {
+    const faqSection = document.createElement('div');
+    faqSection.style.cssText = 'margin-top:36px';
+    faqSection.innerHTML = '<h2 style="font-size:18px;font-weight:800;margin-bottom:16px;color:var(--gray-900)">자주 묻는 질문</h2>';
+    const faqWrap = document.createElement('div');
+    faqWrap.className = 'card';
+    faqSection.appendChild(faqWrap);
+    body.appendChild(faqSection);
+    renderFaqSection(faqWrap, faqs);
+  }
+}
+
+// ── 위저드 렌더러 (공개/회원 공용) ──
+function renderWizard(container, cards, { isPublic = false, onLogin = null, onComplete = null } = {}) {
+  let idx = 0;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'wizard-wrap';
+  container.appendChild(wrap);
+
+  function renderCard() {
+    const card = cards[idx];
+    const isLast = idx === cards.length - 1;
+    const hasPrev = idx > 0;
+
+    let ctaBtn = '';
+    if (isLast) {
+      if (isPublic) {
+        ctaBtn = `<button class="btn-wiz-next" id="wiz-cta">지금 입점 신청하기</button>`;
+      } else {
+        ctaBtn = `<button class="btn-wiz-next" id="wiz-cta">계속하기</button>`;
+      }
+    } else {
+      ctaBtn = `<button class="btn-wiz-next" id="wiz-next">다음 →</button>`;
+    }
+
+    wrap.innerHTML = `
+      <div class="wizard-card active">
+        ${card.image_url ? `<img src="${card.image_url}" alt="${card.image_alt || ''}">` : ''}
+        <div class="wizard-title">${card.title || ''}</div>
+        <div class="wizard-body">${card.body || ''}</div>
+      </div>
+      <div class="wizard-footer">
+        <div class="wizard-dots">
+          ${cards.map((_, i) => `<div class="wizard-dot${i === idx ? ' active' : ''}"></div>`).join('')}
+        </div>
+        <div class="wizard-nav">
+          <button class="btn-wiz-skip" id="wiz-skip">건너뛰기</button>
+          ${hasPrev ? `<button class="btn-wiz-prev" id="wiz-prev">← 이전</button>` : ''}
+          ${ctaBtn}
+        </div>
+      </div>`;
+
+    wrap.querySelector('#wiz-skip')?.addEventListener('click', () => {
+      if (isPublic && onLogin) onLogin();
+      else if (onComplete) onComplete();
+    });
+    wrap.querySelector('#wiz-prev')?.addEventListener('click', () => { idx--; renderCard(); });
+    wrap.querySelector('#wiz-next')?.addEventListener('click', () => { idx++; renderCard(); });
+    wrap.querySelector('#wiz-cta')?.addEventListener('click', () => {
+      if (isPublic && onLogin) onLogin();
+      else if (onComplete) onComplete();
+    });
+  }
+
+  renderCard();
+}
+
+// ── FAQ 섹션 렌더러 ──
+function renderFaqSection(container, faqs) {
+  const cats = ['전체', ...new Set(faqs.map(f => f.category).filter(Boolean))];
+  let activeCat = '전체';
+  let searchTerm = '';
+
+  function render() {
+    const filtered = faqs.filter(f => {
+      const catMatch = activeCat === '전체' || f.category === activeCat;
+      const txtMatch = !searchTerm || (f.question + ' ' + f.answer).toLowerCase().includes(searchTerm);
+      return catMatch && txtMatch;
+    });
+
+    container.innerHTML = `
+      <div class="faq-search-wrap">
+        <input class="faq-search" id="faq-search-inp" type="text" placeholder="질문 검색..." value="${searchTerm}">
+      </div>
+      <div class="faq-cats">
+        ${cats.map(c => `<button class="faq-cat-btn${c === activeCat ? ' active' : ''}" data-cat="${c}">${c}</button>`).join('')}
+      </div>
+      ${filtered.length === 0
+        ? '<div class="faq-empty">검색 결과가 없습니다.</div>'
+        : filtered.map(f => `
+          <div class="faq-item">
+            <button class="faq-q"><span>${f.question}</span><span class="faq-arrow">▼</span></button>
+            <div class="faq-a">${f.answer}</div>
+          </div>`).join('')}`;
+
+    container.querySelector('#faq-search-inp').addEventListener('input', e => {
+      searchTerm = e.target.value.trim().toLowerCase();
+      render();
+    });
+    container.querySelectorAll('.faq-cat-btn').forEach(btn => {
+      btn.addEventListener('click', () => { activeCat = btn.dataset.cat; render(); });
+    });
+    container.querySelectorAll('.faq-q').forEach(btn => {
+      btn.addEventListener('click', () => btn.closest('.faq-item').classList.toggle('open'));
+    });
+  }
+
+  render();
+}
+
+// ── 회원 온보딩 위저드 (새 브랜드 담당 합류/등록 진입 시마다) ──
+async function renderMemberOnboardingPage(container) {
+  container.innerHTML = '<div style="text-align:center;padding:60px 0"><div class="spinner" style="margin:0 auto"></div></div>';
+
+  let cards = [];
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'onboarding_cards'),
+      where('audience', '==', 'member'),
+      where('active', '==', true),
+      orderBy('order'),
+    ));
+    cards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (_) {}
+
+  container.innerHTML = '';
+
+  if (cards.length === 0) {
+    // 카드 없으면 갈림길로 바로 이동
+    renderBranchSelect(container);
+    return;
+  }
+
+  const wizEl = document.createElement('div');
+  wizEl.style.cssText = 'max-width:640px;margin:0 auto';
+  container.appendChild(wizEl);
+
+  renderWizard(wizEl, cards, {
+    isPublic: false,
+    onComplete: () => renderBranchSelect(container),
+  });
 }
 
 // ── 모달 헬퍼 ──

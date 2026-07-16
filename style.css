@@ -19,13 +19,116 @@
 
 body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background: var(--gray-50); color: var(--gray-900); }
 
-/* ── 로그인 화면 ── */
+/* ── 랜딩/로그인 화면 ── */
 #login-screen {
   min-height: 100vh;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+/* 랜딩 헤더 */
+.landing-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  height: 56px;
+  background: rgba(255,255,255,.85);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--gray-100);
+}
+.landing-logo { font-size: 20px; font-weight: 800; color: var(--primary); }
+.landing-body { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px; }
+
+/* 위저드 카드 */
+.wizard-wrap {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.10);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.wizard-card { padding: 36px 36px 28px; display: none; }
+.wizard-card.active { display: block; }
+.wizard-card img { max-width: 100%; max-height: 160px; object-fit: contain; border-radius: 10px; margin-bottom: 20px; }
+.wizard-title { font-size: 20px; font-weight: 800; margin-bottom: 10px; color: var(--gray-900); }
+.wizard-body  { font-size: 14px; color: var(--gray-600); line-height: 1.7; }
+.wizard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 36px;
+  border-top: 1px solid var(--gray-100);
+  background: var(--gray-50);
+}
+.wizard-dots { display: flex; gap: 6px; }
+.wizard-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  transition: background .2s;
+}
+.wizard-dot.active { background: var(--primary); }
+.wizard-nav { display: flex; gap: 8px; align-items: center; }
+.btn-wiz-skip { font-size: 13px; color: var(--gray-400); cursor: pointer; background: none; border: none; padding: 6px 0; }
+.btn-wiz-skip:hover { color: var(--gray-600); }
+.btn-wiz-prev {
+  padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  background: var(--gray-100); color: var(--gray-600); border: none;
+}
+.btn-wiz-prev:hover { background: var(--gray-200); }
+.btn-wiz-next {
+  padding: 9px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  background: var(--primary); color: #fff; border: none;
+}
+.btn-wiz-next:hover { background: var(--primary-dark); }
+
+/* FAQ */
+.faq-search-wrap { margin-bottom: 16px; }
+.faq-search {
+  width: 100%; padding: 10px 14px;
+  border: 1.5px solid var(--gray-200); border-radius: 8px;
+  font-size: 14px; outline: none;
+}
+.faq-search:focus { border-color: var(--primary); }
+.faq-cats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.faq-cat-btn {
+  padding: 5px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: 1.5px solid var(--gray-200); background: #fff; color: var(--gray-600);
+}
+.faq-cat-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
+.faq-item { border-bottom: 1px solid var(--gray-100); }
+.faq-q {
+  width: 100%; text-align: left; background: none; border: none;
+  padding: 14px 0; font-size: 14px; font-weight: 600; color: var(--gray-900);
+  cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+}
+.faq-q:hover { color: var(--primary); }
+.faq-q .faq-arrow { transition: transform .2s; font-size: 12px; color: var(--gray-400); }
+.faq-item.open .faq-arrow { transform: rotate(180deg); }
+.faq-a { display: none; padding: 0 0 14px; font-size: 13px; color: var(--gray-600); line-height: 1.7; }
+.faq-item.open .faq-a { display: block; }
+.faq-empty { font-size: 14px; color: var(--gray-400); text-align: center; padding: 24px 0; }
+
+/* 로그인 카드 (공개 랜딩에 쓰는 작은 인라인 카드) */
+.login-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.10);
+  padding: 48px 40px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  margin: 0 auto;
+}
+
+/* 독립 로그인 화면 (랜딩 없이 바로 카드 표시할 때) */
+#login-screen.centered {
+  display: flex !important;
+  align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
 }
 
 .login-card {

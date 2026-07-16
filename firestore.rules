@@ -146,6 +146,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── onboarding_cards 컬렉션 (비로그인 포함 누구나 read) ──
+    match /onboarding_cards/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── faq_items 컬렉션 (비로그인 포함 누구나 read) ──
+    match /faq_items/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ── inquiries 컬렉션 ──
     match /inquiries/{inquiryId} {
       // 본인이 작성한 것만 read
