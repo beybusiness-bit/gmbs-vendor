@@ -60,6 +60,135 @@ function setActiveBrand(brandId) {
   if (currentUserDoc) currentUserDoc.brand_id = brandId; // 기존 코드 호환
 }
 
+// ── 사이드바 배지 ──
+// localStorage 키: gmbs_read_{scope}_{uid}
+// notices  → timestamp (마지막 방문 이후 새 공지 카운트)
+// others   → JSON 배열 of IDs (결과를 확인한 문서 IDs)
+
+function _badgeKey(scope) {
+  return `gmbs_read_${scope}_${currentUser?.uid}`;
+}
+function _getReadIds(scope) {
+  try { return new Set(JSON.parse(localStorage.getItem(_badgeKey(scope)) || '[]')); }
+  catch { return new Set(); }
+}
+function _saveReadIds(scope, set) {
+  try { localStorage.setItem(_badgeKey(scope), JSON.stringify([...set])); } catch {}
+}
+function _getReadTs(scope) {
+  return parseInt(localStorage.getItem(_badgeKey(scope)) || '0', 10);
+}
+function _saveReadTs(scope, ts) {
+  try { localStorage.setItem(_badgeKey(scope), String(ts)); } catch {}
+}
+
+// 페이지 방문 시 해당 항목을 읽음 처리
+async function markBadgeRead(page) {
+  if (!currentUser) return;
+  const uid = currentUser.uid;
+  const brandId = activeBrandId;
+
+  if (page === 'notices') {
+    // 현재 시각을 마지막 방문 타임스탬프로 저장
+    _saveReadTs('notices', Date.now());
+
+  } else if (page === 'pending') {
+    const [appsSnap, joinSnap] = await Promise.all([
+      getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
+      getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
+    ]);
+    const seen = _getReadIds('pending');
+    [...appsSnap.docs, ...joinSnap.docs].forEach(d => {
+      const s = d.data().status;
+      if (s === STATUS.APPROVED || s === STATUS.REJECTED) seen.add(d.id);
+    });
+    _saveReadIds('pending', seen);
+
+  } else if (page === 'inquiries' && brandId) {
+    const snap = await getDocs(query(collection(db, 'inquiries'), where('brand_id', '==', brandId)));
+    const seen = _getReadIds('inquiries');
+    snap.docs.forEach(d => { if (d.data().answer) seen.add(d.id); });
+    _saveReadIds('inquiries', seen);
+
+  } else if (page === 'products' && brandId) {
+    const snap = await getDocs(query(collection(db, 'products'), where('brand_id', '==', brandId)));
+    const seen = _getReadIds('products');
+    snap.docs.forEach(d => {
+      const s = d.data().status;
+      if (s === '승인' || s === '거절') seen.add(d.id);
+    });
+    _saveReadIds('products', seen);
+  }
+}
+
+// 각 메뉴의 배지 카운트 계산 (비동기, 배경 실행)
+async function computeBadges() {
+  if (!currentUser) return {};
+  const uid = currentUser.uid;
+  const isBrand = currentUserDoc?.member_status === STATUS.BRAND;
+  const brandId = activeBrandId;
+  const badges = {};
+
+  try {
+    // 공지사항: 마지막 방문 이후 새로 등록된 공지 수
+    const lastNoticeTs = _getReadTs('notices');
+    const noticeSnap = await getDocs(query(collection(db, 'notices'), orderBy('created_at', 'desc'), limit(50)));
+    badges.notices = noticeSnap.docs.filter(d => {
+      const ts = d.data().created_at?.toMillis?.() || 0;
+      return ts > lastNoticeTs;
+    }).length;
+
+    if (isBrand && brandId) {
+      // 문의하기: 답변완료 중 아직 안 본 것
+      const seenInq = _getReadIds('inquiries');
+      const inqSnap = await getDocs(query(collection(db, 'inquiries'), where('brand_id', '==', brandId)));
+      badges.inquiries = inqSnap.docs.filter(d => d.data().answer && !seenInq.has(d.id)).length;
+
+      // 상품관리: 승인/거절 결과 중 아직 안 본 것
+      const seenProd = _getReadIds('products');
+      const prodSnap = await getDocs(query(collection(db, 'products'), where('brand_id', '==', brandId)));
+      badges.products = prodSnap.docs.filter(d => {
+        const s = d.data().status;
+        return (s === '승인' || s === '거절') && !seenProd.has(d.id);
+      }).length;
+
+    } else if (!isBrand) {
+      // 신청현황: 승인/거절 결과 중 아직 안 본 것
+      const seenApps = _getReadIds('pending');
+      const [appsSnap, joinSnap] = await Promise.all([
+        getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
+        getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
+      ]);
+      badges.pending = [...appsSnap.docs, ...joinSnap.docs].filter(d => {
+        const s = d.data().status;
+        return (s === STATUS.APPROVED || s === STATUS.REJECTED) && !seenApps.has(d.id);
+      }).length;
+    }
+  } catch (_) { /* 배지 계산 실패는 조용히 무시 */ }
+
+  return badges;
+}
+
+// 사이드바 nav-item에 배지 DOM 업데이트
+function applyNavBadges(badges) {
+  Object.entries(badges).forEach(([page, count]) => {
+    const navItem = document.querySelector(`#sidebar-nav .nav-item[data-page="${page}"]`);
+    if (!navItem) return;
+    navItem.querySelectorAll('.nav-badge').forEach(el => el.remove());
+    if (count > 0) {
+      const span = document.createElement('span');
+      span.className = 'nav-badge';
+      span.textContent = count > 9 ? '9+' : String(count);
+      navItem.appendChild(span);
+    }
+  });
+}
+
+async function refreshBadges() {
+  const badges = await computeBadges();
+  applyNavBadges(badges);
+}
+
 // ── 구글 로그인 ──
 async function handleGoogleSignIn() {
   $('login-error').textContent = '';
@@ -149,6 +278,8 @@ function renderApp(memberStatus, isNewLink = false) {
     checkApplicationStatus();
   }
   showApp();
+  // 앱 진입 시 초기 배지 계산 (백그라운드)
+  refreshBadges().catch(() => {});
 }
 
 async function checkApplicationStatus() {
@@ -283,6 +414,9 @@ async function renderPage(page) {
     case 'account':       await renderAccount(ctx()); break;
     default:              container.innerHTML = '<p>페이지를 찾을 수 없습니다.</p>';
   }
+
+  // 배지 갱신: 읽음 처리 후 카운트 재계산 (백그라운드, 오류 무시)
+  markBadgeRead(page).then(() => refreshBadges()).catch(() => {});
 }
 
 window._gotoPage = page => renderPage(page);
