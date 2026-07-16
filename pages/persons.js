@@ -81,7 +81,12 @@ async function openPersonModal({ brandId, person, showModal, closeModal, contain
     </div>
     <div class="form-group">
       <label class="form-label">역할/직책</label>
-      <input id="p-role" class="form-input" type="text" value="${isEdit ? (person.role||'') : ''}">
+      <select id="p-role" class="form-input form-select">
+        <option value="">선택하세요</option>
+        ${['대표', '운영 담당자', 'MD', '마케팅 담당자', '영업 담당자', '기타'].map(r =>
+          `<option value="${r}"${(isEdit ? person.role : '') === r ? ' selected' : ''}>${r}</option>`
+        ).join('')}
+      </select>
     </div>
     <div class="form-group">
       <label class="form-label">연락처</label>

@@ -35,6 +35,11 @@ export async function renderAccount({ userDoc, user, container }) {
             <input id="acc-phone" class="form-input" type="tel" value="${ud.phone || ''}">
           </div>
           <div class="form-group">
+            <label class="form-label">연락용 이메일</label>
+            <input id="acc-contact-email" class="form-input" type="email" placeholder="업무용 이메일 주소" value="${ud.contact_email || ''}">
+            <div class="form-hint">신청·등록 양식에 자동으로 불러와집니다.</div>
+          </div>
+          <div class="form-group">
             <label class="form-label">구글 계정 이메일 (변경 불가)</label>
             <input class="form-input" type="email" value="${user.email || ''}" disabled
               style="background:var(--gray-100);color:var(--gray-400)">
@@ -48,8 +53,9 @@ export async function renderAccount({ userDoc, user, container }) {
   `;
 
   document.getElementById('btn-acc-save').addEventListener('click', async () => {
-    const name  = document.getElementById('acc-name').value.trim();
-    const phone = document.getElementById('acc-phone').value.trim();
+    const name         = document.getElementById('acc-name').value.trim();
+    const phone        = document.getElementById('acc-phone').value.trim();
+    const contactEmail = document.getElementById('acc-contact-email').value.trim();
     const msgEl = document.getElementById('acc-msg');
     const saveBtn = document.getElementById('btn-acc-save');
 
@@ -62,6 +68,7 @@ export async function renderAccount({ userDoc, user, container }) {
       await updateDoc(doc(db, 'users', user.uid), {
         name,
         phone,
+        contact_email: contactEmail,
         updated_at: serverTimestamp(),
       });
       msgEl.style.color = 'var(--success)';
