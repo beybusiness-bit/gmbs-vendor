@@ -368,9 +368,9 @@ async function openJoinModal() {
     <div class="modal-title">기존 브랜드 담당자로 합류 신청</div>
     <div class="form-group">
       <label class="form-label">브랜드명 검색 <span style="color:var(--danger)">*</span></label>
-      <div style="display:flex;gap:8px">
-        <input id="join-brand-search" class="form-input" type="text" placeholder="브랜드명을 입력하세요" style="flex:1">
-        <button class="btn btn-outline" id="btn-brand-search" style="white-space:nowrap">검색</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="join-brand-search" class="form-input" type="text" placeholder="브랜드명을 입력하세요" style="flex:1;min-width:0;width:auto">
+        <button class="btn btn-outline" id="btn-brand-search" style="white-space:nowrap;flex-shrink:0;min-width:64px">검색</button>
       </div>
       <div id="join-brand-results" style="margin-top:6px"></div>
       <div id="join-brand-selected" style="display:none;margin-top:8px;padding:10px 12px;background:var(--primary-light,#eff6ff);border-radius:8px;font-size:13px;font-weight:600;color:var(--primary)"></div>
@@ -392,39 +392,66 @@ async function openJoinModal() {
   `);
 
   // 브랜드 검색 로직
-  async function searchBrands() {
-    const term = ($('join-brand-search').value || '').trim().toLowerCase();
+  let brandsLoaded = false;
+  async function ensureBrands() {
+    if (brandsLoaded) return;
+    const snap = await getDocs(collection(db, 'brands'));
+    allBrands = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    brandsLoaded = true;
+  }
+
+  function renderBrandResults(term) {
     if (!term) { $('join-brand-results').innerHTML = ''; return; }
-    if (allBrands.length === 0) {
-      const snap = await getDocs(collection(db, 'brands'));
-      allBrands = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
     const matched = allBrands.filter(b => (b.brand_name || '').toLowerCase().includes(term));
     if (matched.length === 0) {
       $('join-brand-results').innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">검색 결과가 없습니다.</div>';
       return;
     }
-    $('join-brand-results').innerHTML = matched.slice(0, 10).map(b =>
-      `<div class="brand-search-item" data-id="${b.id}" data-name="${b.brand_name || ''}"
-        style="padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:13px;font-weight:600;transition:background 0.1s"
-        onmouseover="this.style.background='var(--gray-100)'" onmouseout="this.style.background=''"
-      >${b.brand_name || b.id}</div>`
-    ).join('');
-    $('join-brand-results').querySelectorAll('.brand-search-item').forEach(el => {
-      el.addEventListener('click', () => {
-        selectedBrandId   = el.dataset.id;
-        selectedBrandName = el.dataset.name;
+    const resultsContainer = $('join-brand-results');
+    resultsContainer.innerHTML = '';
+    matched.slice(0, 10).forEach(b => {
+      const div = document.createElement('div');
+      div.className = 'brand-search-item';
+      div.dataset.id = b.id;
+      div.dataset.name = b.brand_name || '';
+      div.textContent = b.brand_name || b.id;
+      div.style.cssText = 'padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:13px;font-weight:600;transition:background 0.1s';
+      div.addEventListener('mouseover', () => div.style.background = 'var(--gray-100)');
+      div.addEventListener('mouseout', () => div.style.background = '');
+      div.addEventListener('click', () => {
+        selectedBrandId   = div.dataset.id;
+        selectedBrandName = div.dataset.name;
         $('join-brand-results').innerHTML = '';
-        $('join-brand-search').value = '';
+        $('join-brand-search').value = selectedBrandName;
         const sel = $('join-brand-selected');
         sel.textContent = '✓ ' + selectedBrandName;
         sel.style.display = 'block';
       });
+      resultsContainer.appendChild(div);
     });
   }
 
+  async function searchBrands() {
+    const term = ($('join-brand-search').value || '').trim().toLowerCase();
+    const resultsEl = $('join-brand-results');
+    if (!term) { resultsEl.innerHTML = ''; return; }
+    try {
+      resultsEl.innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">검색 중...</div>';
+      await ensureBrands();
+      renderBrandResults(term);
+    } catch (e) {
+      resultsEl.innerHTML = '<div style="font-size:13px;color:var(--danger);padding:8px 0">검색 중 오류가 발생했습니다. 다시 시도해 주세요.</div>';
+      brandsLoaded = false;
+    }
+  }
+
+  let searchTimer;
   $('btn-brand-search').addEventListener('click', searchBrands);
-  $('join-brand-search').addEventListener('keydown', e => { if (e.key === 'Enter') searchBrands(); });
+  $('join-brand-search').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(searchBrands, 300);
+  });
+  $('join-brand-search').addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(searchTimer); searchBrands(); } });
 
   $('btn-join-submit').addEventListener('click', async () => {
     const phone = $('join-phone').value.trim();
