@@ -359,7 +359,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   font-weight: 600;
 }
 .badge-blue   { background: var(--primary-light); color: var(--primary); }
-.badge-green  { background: #dcfce7; color: #15803d; }
+.badge-green  { background: var(--accent); color: #1a5c00; }
 .badge-yellow { background: #fef9c3; color: #a16207; }
 .badge-red    { background: #fee2e2; color: #b91c1c; }
 .badge-gray   { background: var(--gray-100); color: var(--gray-600); }
