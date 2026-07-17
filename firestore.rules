@@ -16,6 +16,12 @@ service cloud.firestore {
       return va != null && va.brand_id == brandId && va.status == '연결됨';
     }
 
+    // 로그인 사용자가 어떤 브랜드에든 연결된 vendor인지 확인 (암호화 키 접근 등에 사용)
+    function isLinkedVendor() {
+      let va = getVendorAccount(request.auth.token.email.lower());
+      return va != null && va.status == '연결됨';
+    }
+
     // ── users 컬렉션 ──
     match /users/{uid} {
       // 본인만 read/write
@@ -57,6 +63,9 @@ service cloud.firestore {
         && request.resource.data.applicant_uid == request.auth.uid
         && request.resource.data.status == '제출됨';
       allow update: if false;
+      // 본인 신청 취소
+      allow delete: if request.auth != null
+        && resource.data.applicant_uid == request.auth.uid;
     }
 
     // ── brands 컬렉션 ──
@@ -141,8 +150,9 @@ service cloud.firestore {
     }
 
     // ── app_configs 컬렉션 (암호화 키 등 앱 설정 — admin이 쓰고 vendor가 읽음) ──
+    // 암호화 키가 포함되므로 연결된 브랜드 담당자만 읽기 허용
     match /app_configs/{docId} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && isLinkedVendor();
       allow write: if false;
     }
 

@@ -5,6 +5,7 @@ import {
   validateResidentNumber, formatResidentNumber,
   verifyBizNumber, validateSettlementForm,
 } from '../utils/validation.js';
+import { esc, safeUrl } from '../utils/sanitize.js';
 
 // onboarding_status 값 기반 뱃지
 function statusBadge(status) {
@@ -70,7 +71,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       <div class="info-row">
         <span class="info-label">관련 사이트</span>
         <span class="info-value" style="display:flex;flex-direction:column;gap:4px">
-          ${urls.map(u => `<a href="${u}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline;font-size:13px;word-break:break-all">${u}</a>`).join('')}
+          ${urls.map(u => safeUrl(u) ? `<a href="${safeUrl(u)}" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline;font-size:13px;word-break:break-all">${esc(u)}</a>` : '').join('')}
         </span>
       </div>`;
   })();
@@ -83,7 +84,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       <div class="info-row">
         <span class="info-label">브랜드 코드</span>
         <span class="info-value">
-          <code style="background:var(--primary-light);color:var(--primary);padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.05em">${b.brand_code}</code>
+          <code style="background:var(--primary-light);color:var(--primary);padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.05em">${esc(b.brand_code)}</code>
         </span>
       </div>`);
     const commissionRate = b.fee_info?.commission_rate;
@@ -129,7 +130,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       <div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
           <div>
-            <h2 style="font-size:22px;font-weight:800">${b.brand_name || '-'}</h2>
+            <h2 style="font-size:22px;font-weight:800">${esc(b.brand_name) || '-'}</h2>
             <div style="margin-top:6px">${statusBadge(onboardingStatus)}</div>
           </div>
           <button class="btn btn-outline" id="btn-edit-brand" style="width:auto;padding:10px 20px">
@@ -146,7 +147,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
         ${b.brand_desc || b.description ? `
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-100)">
             <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:6px">브랜드 소개</div>
-            <p style="color:var(--gray-600);font-size:14px;line-height:1.7">${b.brand_desc || b.description}</p>
+            <p style="color:var(--gray-600);font-size:14px;line-height:1.7">${esc(b.brand_desc || b.description)}</p>
           </div>` : ''}
       </div>
 
@@ -171,10 +172,10 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
               { key: 'biz_reg_url',   label: '사업자등록증' },
             ].map(({ key, label }) => si[key]
               ? `<div style="display:flex;align-items:center;gap:10px">
-                   <span style="font-size:13px;color:var(--gray-700);min-width:80px">${label}</span>
+                   <span style="font-size:13px;color:var(--gray-700);min-width:80px">${esc(label)}</span>
                    <span style="font-size:12px;color:var(--success);font-weight:600">✅ 등록완료 (자동저장)</span>
-                   <a href="${si[key]}" target="_blank" rel="noopener"
-                     style="font-size:12px;color:var(--primary);text-decoration:underline;margin-left:4px">열기</a>
+                   ${safeUrl(si[key]) ? `<a href="${safeUrl(si[key])}" target="_blank" rel="noopener"
+                     style="font-size:12px;color:var(--primary);text-decoration:underline;margin-left:4px">열기</a>` : ''}
                  </div>`
               : `<div style="display:flex;align-items:center;gap:10px">
                    <span style="font-size:13px;color:var(--gray-700);min-width:80px">${label}</span>

@@ -5,6 +5,7 @@ import {
   ref, uploadBytes, getDownloadURL,
 } from './firebase-init.js';
 import { encryptValue } from './utils/encryption.js';
+import { esc, safeUrl } from './utils/sanitize.js';
 import {
   validateBizRegNumber, formatBizRegNumber,
   validateResidentNumber, formatResidentNumber,
@@ -596,7 +597,7 @@ async function renderDashboard() {
 
   container.innerHTML = `
     <div class="card" style="margin-bottom:20px">
-      <h2 style="font-size:20px;font-weight:700;margin-bottom:6px">안녕하세요, ${name}님 👋</h2>
+      <h2 style="font-size:20px;font-weight:700;margin-bottom:6px">안녕하세요, ${esc(name)}님 👋</h2>
       <p style="color:var(--gray-600);font-size:14px">GMBS 입점 브랜드 포털에 오신 것을 환영합니다.</p>
     </div>
     <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
@@ -1242,7 +1243,7 @@ async function renderPendingFull(container) {
             </div>
             <div style="font-weight:700;font-size:15px">${brandLabel}</div>
             <div style="font-size:12px;color:var(--gray-400);margin-top:4px">신청일: ${fmt(item.submitted_at)}</div>
-            ${item.rejection_reason ? `<div style="margin-top:8px;font-size:13px;color:var(--danger)">거절 사유: ${item.rejection_reason}</div>` : ''}
+            ${item.rejection_reason ? `<div style="margin-top:8px;font-size:13px;color:var(--danger)">거절 사유: ${esc(item.rejection_reason)}</div>` : ''}
           </div>
           ${canCancel ? `<button class="btn-cancel-join" style="margin-left:12px;flex-shrink:0;width:auto;padding:6px 14px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">신청 취소</button>` : ''}
         </div>`;
@@ -1374,8 +1375,8 @@ function renderWizard(container, cards, { isPublic = false, onLogin = null, onCo
 
     wrap.innerHTML = `
       <div class="wizard-card active">
-        ${card.image_url ? `<img src="${card.image_url}" alt="${card.image_alt || ''}">` : ''}
-        <div class="wizard-title">${card.title || ''}</div>
+        ${safeUrl(card.image_url) ? `<img src="${safeUrl(card.image_url)}" alt="${esc(card.image_alt || '')}">` : ''}
+        <div class="wizard-title">${esc(card.title || '')}</div>
         <div class="wizard-body">${card.body || ''}</div>
       </div>
       <div class="wizard-footer">
