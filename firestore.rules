@@ -77,7 +77,7 @@ service cloud.firestore {
         allow update: if request.auth != null && isBrandMember(brandId)
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['name', 'role', 'phone', 'contact_email', 'updated_at']);
-        allow delete: if false;
+        allow delete: if request.auth != null && isBrandMember(brandId);
       }
 
       // ── brands/{brandId}/contracts 서브컬렉션 ──
@@ -156,6 +156,25 @@ service cloud.firestore {
     match /faq_items/{docId} {
       allow read: if true;
       allow write: if false;
+    }
+
+    // ── customer_inquiries 컬렉션 (admin 등록, vendor 조회·응답) ──
+    match /customer_inquiries/{docId} {
+      allow read: if request.auth != null && isBrandMember(resource.data.brand_id);
+      allow update: if request.auth != null
+        && isBrandMember(resource.data.brand_id)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'updated_at']);
+      allow create, delete: if false;
+
+      match /responses/{respId} {
+        allow read: if request.auth != null &&
+          isBrandMember(get(/databases/$(database)/documents/customer_inquiries/$(docId)).data.brand_id);
+        allow create: if request.auth != null &&
+          isBrandMember(get(/databases/$(database)/documents/customer_inquiries/$(docId)).data.brand_id) &&
+          request.resource.data.author_type == 'vendor';
+        allow update, delete: if false;
+      }
     }
 
     // ── inquiries 컬렉션 ──

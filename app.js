@@ -11,7 +11,8 @@ import { renderProducts }     from './pages/products.js';
 import { renderInventory }    from './pages/inventory.js';
 import { renderSettlements }  from './pages/settlements.js';
 import { renderNotices }      from './pages/notices.js';
-import { renderInquiries }    from './pages/inquiries.js';
+import { renderInquiries }        from './pages/inquiries.js';
+import { renderCustomerInquiries } from './pages/customer-inquiries.js';
 import { renderAccount }      from './pages/account.js';
 import {
   sendApplicationReceivedEmail,
@@ -123,6 +124,9 @@ async function markBadgeRead(page) {
       if (s === '승인' || s === '거절') seen.add(d.id);
     });
     _saveReadIds('products', seen);
+
+  } else if (page === 'customer-inquiries' && brandId) {
+    // 페이지 방문 시 배지는 실제 미답변 건수로 유지 (리얼타임 배지이므로 별도 읽음 처리 없음)
   }
 }
 
@@ -155,6 +159,13 @@ async function computeBadges() {
       badges.products = prodSnap.docs.filter(d => {
         const s = d.data().status;
         return (s === '승인' || s === '거절') && !seenProd.has(d.id);
+      }).length;
+
+      // 고객 문의: 답변대기 + 재응답 필요 건수
+      const csSnap = await getDocs(query(collection(db, 'customer_inquiries'), where('brand_id', '==', brandId)));
+      badges['customer-inquiries'] = csSnap.docs.filter(d => {
+        const s = d.data().status;
+        return s === '답변대기' || s === '재응답 필요';
       }).length;
 
     } else if (!isBrand) {
@@ -286,6 +297,31 @@ onAuthStateChanged(auth, async (user) => {
     }
   } else {
     currentUserDoc = userSnap.data();
+
+    // 기존 사용자도 새 초대(vendor_accounts)가 있으면 브랜드 추가 처리
+    try {
+      const vendorRef  = doc(db, 'vendor_accounts', email);
+      const vendorSnap = await getDoc(vendorRef);
+      if (vendorSnap.exists() && vendorSnap.data().status === STATUS.INVITED) {
+        const vd = vendorSnap.data();
+        const newBrandId = vd.brand_id;
+        if (newBrandId) {
+          const existingIds = getUserBrandIds(currentUserDoc);
+          if (!existingIds.includes(newBrandId)) {
+            const updatedIds = existingIds.length ? [...existingIds, newBrandId] : [newBrandId];
+            await setDoc(userRef, {
+              member_status: STATUS.BRAND,
+              brand_id:  newBrandId,
+              brand_ids: updatedIds,
+              updated_at: serverTimestamp(),
+            }, { merge: true });
+          }
+          await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
+          currentUserDoc = (await getDoc(userRef)).data();
+        }
+      }
+    } catch (_) { /* 초대 확인 실패는 무시 */ }
+
     renderApp(currentUserDoc.member_status || STATUS.GENERAL);
   }
 });
@@ -373,6 +409,8 @@ async function renderSidebar(memberStatus) {
       <div class="nav-item" data-page="products"><span class="icon">📦</span><span class="nav-label">상품 관리</span></div>
       <div class="nav-item" data-page="inventory"><span class="icon">📊</span><span class="nav-label">재고·판매 조회</span></div>
       <div class="nav-item" data-page="settlements"><span class="icon">💰</span><span class="nav-label">정산 조회</span></div>
+      <div class="nav-section-label">고객 지원</div>
+      <div class="nav-item" data-page="customer-inquiries"><span class="icon">🎯</span><span class="nav-label">고객 문의</span></div>
       <div class="nav-section-label">안내</div>
       <div class="nav-item" data-page="notices"><span class="icon">📢</span><span class="nav-label">공지사항</span></div>
       <div class="nav-item" data-page="faq-page"><span class="icon">❓</span><span class="nav-label">자주하는 질문</span></div>
@@ -496,9 +534,10 @@ const PAGE_TITLES = {
   inventory:           '재고·판매 조회',
   settlements:         '정산 조회',
   notices:             '공지사항',
-  'faq-page':          '자주하는 질문',
-  inquiries:           '1:1 문의하기',
-  account:             '계정 설정',
+  'faq-page':               '자주하는 질문',
+  inquiries:                '1:1 문의하기',
+  'customer-inquiries':     '고객 문의',
+  account:                  '계정 설정',
 };
 
 function ctx() {
@@ -531,8 +570,9 @@ async function renderPage(page) {
     case 'inventory':     await renderInventory(ctx()); break;
     case 'settlements':   await renderSettlements(ctx()); break;
     case 'notices':       await renderNotices(ctx()); break;
-    case 'inquiries':     await renderInquiries(ctx()); break;
-    case 'account':       await renderAccount(ctx()); break;
+    case 'inquiries':             await renderInquiries(ctx()); break;
+    case 'customer-inquiries':    await renderCustomerInquiries(ctx()); break;
+    case 'account':               await renderAccount(ctx()); break;
     default:              container.innerHTML = '<p>페이지를 찾을 수 없습니다.</p>';
   }
 
