@@ -1,5 +1,10 @@
 import { db, doc, getDoc, updateDoc, serverTimestamp } from '../firebase-init.js';
 import { encryptValue, decryptValue, isEncrypted } from '../utils/encryption.js';
+import {
+  validateBizRegNumber, formatBizRegNumber,
+  validateResidentNumber, formatResidentNumber,
+  verifyBizNumber, validateSettlementForm,
+} from '../utils/validation.js';
 
 // onboarding_status 값 기반 뱃지
 function statusBadge(status) {
@@ -304,7 +309,14 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     <div id="edit-business-fields" style="display:${isBiz ? 'block' : 'none'}">
       <div class="form-group">
         <label class="form-label">사업자등록번호</label>
-        <input id="edit-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000" value="${si.business_reg_number || ''}">
+        <div style="display:flex;gap:8px">
+          <input id="edit-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000" value="${si.business_reg_number || ''}" style="flex:1">
+          <button type="button" id="btn-edit-verify-biz"
+            style="white-space:nowrap;padding:0 14px;background:var(--gray-100);border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:var(--gray-700)">
+            사업자 확인
+          </button>
+        </div>
+        <div id="edit-biz-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
       </div>
       <div class="form-group">
         <label class="form-label">과세 유형</label>
@@ -319,7 +331,9 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     <div id="edit-individual-fields" style="display:${isInd ? 'block' : 'none'}">
       <div class="form-group">
         <label class="form-label">주민등록번호</label>
-        <input id="edit-resident-number" class="form-input" type="text" placeholder="000000-0000000" maxlength="14" value="${existingResidentNumber}">
+        <input id="edit-resident-number" class="form-input" type="password"
+          placeholder="000000-0000000" maxlength="14" autocomplete="off" value="${existingResidentNumber}">
+        <div id="edit-resident-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
         <p style="margin-top:6px;font-size:11px;color:var(--gray-500);line-height:1.5;background:var(--gray-50);padding:8px 10px;border-radius:6px">
           주민등록번호는 소득세법 제127조에 따른 원천징수 신고 목적으로만 수집됩니다.<br>
           AES-256 암호화 저장, 세무법정 보관 기간(5년) 이후 파기됩니다.
@@ -365,6 +379,67 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     });
   });
 
+  // 사업자등록번호 자동 포맷 + 형식 힌트
+  document.getElementById('edit-biz-reg-number').addEventListener('input', () => {
+    const el = document.getElementById('edit-biz-reg-number');
+    el.value = formatBizRegNumber(el.value);
+    const hint = document.getElementById('edit-biz-hint');
+    const digits = el.value.replace(/-/g, '');
+    if (digits.length === 10) {
+      if (validateBizRegNumber(digits)) {
+        hint.style.color = 'var(--success, #16a34a)';
+        hint.textContent = '형식 확인됨 — "사업자 확인" 버튼으로 실제 조회하세요.';
+      } else {
+        hint.style.color = 'var(--danger)';
+        hint.textContent = '올바르지 않은 사업자등록번호입니다.';
+      }
+    } else {
+      hint.textContent = '';
+    }
+  });
+
+  // 사업자 확인 버튼 (국세청 API)
+  document.getElementById('btn-edit-verify-biz').addEventListener('click', async () => {
+    const el = document.getElementById('edit-biz-reg-number');
+    const hint = document.getElementById('edit-biz-hint');
+    const digits = (el.value || '').replace(/-/g, '');
+    if (digits.length !== 10 || !validateBizRegNumber(digits)) {
+      hint.style.color = 'var(--danger)';
+      hint.textContent = '사업자등록번호를 먼저 올바르게 입력하세요.';
+      return;
+    }
+    document.getElementById('btn-edit-verify-biz').disabled = true;
+    hint.style.color = 'var(--gray-500)';
+    hint.textContent = '조회 중...';
+    try {
+      const r = await verifyBizNumber(digits);
+      const colors = { active: 'var(--success, #16a34a)', dormant: 'var(--warning, #b45309)', closed: 'var(--danger)' };
+      const icons  = { active: '✓', dormant: '⚠', closed: '✗' };
+      hint.style.color = colors[r.status] || 'var(--gray-600)';
+      hint.textContent = (icons[r.status] || '?') + ' ' + r.label;
+    } catch (e) {
+      hint.style.color = 'var(--danger)';
+      hint.textContent = '조회 오류: ' + e.message;
+    } finally {
+      document.getElementById('btn-edit-verify-biz').disabled = false;
+    }
+  });
+
+  // 주민등록번호 자동 하이픈 + 실시간 검증
+  document.getElementById('edit-resident-number').addEventListener('input', () => {
+    const el = document.getElementById('edit-resident-number');
+    el.value = formatResidentNumber(el.value);
+    const hint = document.getElementById('edit-resident-hint');
+    const digits = el.value.replace(/-/g, '');
+    if (digits.length === 13) {
+      const r = validateResidentNumber(el.value);
+      hint.style.color = r.ok ? 'var(--success, #16a34a)' : 'var(--danger)';
+      hint.textContent = r.ok ? '✓ 형식이 올바릅니다.' : '✗ ' + r.msg;
+    } else {
+      hint.textContent = '';
+    }
+  });
+
   document.getElementById('btn-settlement-cancel').addEventListener('click', closeModal);
   document.getElementById('btn-settlement-save').addEventListener('click', async () => {
     const saveBtn = document.getElementById('btn-settlement-save');
@@ -375,6 +450,12 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     if (!document.getElementById('edit-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
     if (!document.getElementById('edit-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
     if (!document.getElementById('edit-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
+    const validationErrors = validateSettlementForm({
+      bizType,
+      bizNumber:      document.getElementById('edit-biz-reg-number')?.value || '',
+      residentNumber: document.getElementById('edit-resident-number')?.value || '',
+    });
+    if (validationErrors.length) { errEl.textContent = validationErrors[0]; return; }
 
     saveBtn.disabled = true;
     saveBtn.textContent = '저장 중...';
