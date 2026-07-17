@@ -4,6 +4,7 @@ import {
   doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
   ref, uploadBytes, getDownloadURL,
 } from './firebase-init.js';
+import { encryptValue } from './utils/encryption.js';
 import { renderBrandInfo }    from './pages/brand-info.js';
 import { renderPersons }      from './pages/persons.js';
 import { renderContracts }    from './pages/contracts.js';
@@ -830,16 +831,29 @@ async function openJoinModal() {
 // ── 새 브랜드 등록 신청 모달 ──
 async function openApplyModal() {
   const ud = currentUserDoc || {};
+
+  const sectionStyle = 'font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.04em;margin:20px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--gray-100)';
+
   showModal(`
     <div class="modal-title">새 브랜드 입점 신청</div>
-    <div style="font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.04em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--gray-100)">기본 정보</div>
+
+    <div style="${sectionStyle};margin-top:0">기본 정보</div>
     <div class="form-group">
       <label class="form-label">브랜드명 <span style="color:var(--danger)">*</span></label>
       <input id="app-brand-name" class="form-input" type="text" placeholder="브랜드 이름을 입력하세요">
     </div>
     <div class="form-group">
-      <label class="form-label">브랜드 대표 사진</label>
-      <input id="app-brand-photo" type="file" accept="image/*"
+      <label class="form-label">거래유형 <span style="color:var(--danger)">*</span></label>
+      <select id="app-brand-type" class="form-input form-select">
+        <option value="">선택하세요</option>
+        <option value="PB">PB</option>
+        <option value="위탁">위탁</option>
+        <option value="매입">매입</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">브랜드 대표 사진 <span style="color:var(--gray-400);font-weight:400">(정사각형 500×500px 권장, JPG/PNG)</span></label>
+      <input id="app-brand-photo" type="file" accept="image/jpeg,image/png"
         style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer">
       <div id="app-photo-preview" style="display:none;margin-top:8px">
         <img id="app-photo-img" style="max-width:120px;max-height:120px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)">
@@ -847,13 +861,18 @@ async function openApplyModal() {
     </div>
     <div class="form-group">
       <label class="form-label">브랜드 간단 소개</label>
-      <textarea id="app-brand-desc" class="form-input" placeholder="브랜드를 간략히 소개해 주세요" rows="3" style="resize:vertical"></textarea>
+      <textarea id="app-brand-desc" class="form-input" placeholder="브랜드를 한 줄로 소개해 주세요" rows="2" style="resize:vertical"></textarea>
     </div>
     <div class="form-group">
-      <label class="form-label">브랜드 대표 링크</label>
-      <input id="app-brand-link" class="form-input" type="url" placeholder="홈페이지 또는 SNS URL">
+      <label class="form-label">관련 사이트 <span style="color:var(--gray-400);font-weight:400">(최대 5개)</span></label>
+      <div id="app-url-list"></div>
+      <button type="button" id="btn-add-url"
+        style="margin-top:6px;padding:7px 14px;background:none;border:1.5px dashed var(--gray-300);border-radius:8px;font-size:13px;color:var(--gray-500);cursor:pointer;width:100%">
+        + URL 추가
+      </button>
     </div>
-    <div style="font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.04em;margin:20px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--gray-100)">담당자 정보</div>
+
+    <div style="${sectionStyle}">담당자 정보</div>
     <div class="form-group">
       <label class="form-label">연락처 <span style="color:var(--danger)">*</span></label>
       <input id="app-phone" class="form-input" type="tel" placeholder="010-0000-0000" value="${ud.phone || ''}">
@@ -866,9 +885,95 @@ async function openApplyModal() {
       <label class="form-label">역할/직책 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('app-role')}
     </div>
+
+    <div id="settlement-section" style="display:none">
+      <div style="${sectionStyle}">정산 정보</div>
+
+      <div id="commission-row" style="display:none">
+        <div class="form-group">
+          <label class="form-label">위탁판매대행수수료 (%)</label>
+          <input id="app-commission-rate" class="form-input" type="number" min="0" max="100" step="0.1" value="15" placeholder="15">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">사업자 여부 <span style="color:var(--danger)">*</span></label>
+        <div style="display:flex;gap:12px;margin-top:6px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
+            <input type="radio" name="app-biz-type" value="business" id="app-biz-business"> 사업자
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
+            <input type="radio" name="app-biz-type" value="individual" id="app-biz-individual"> 개인(사업자없음)
+          </label>
+        </div>
+      </div>
+
+      <div id="business-fields" style="display:none">
+        <div class="form-group">
+          <label class="form-label">사업자등록번호</label>
+          <input id="app-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">과세 유형</label>
+          <select id="app-taxation-type" class="form-input form-select">
+            <option value="">선택하세요</option>
+            <option value="일반">일반과세</option>
+            <option value="간이">간이과세</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="individual-fields" style="display:none">
+        <div class="form-group">
+          <label class="form-label">주민등록번호</label>
+          <input id="app-resident-number" class="form-input" type="text" placeholder="000000-0000000" maxlength="14">
+          <p style="margin-top:6px;font-size:11px;color:var(--gray-500);line-height:1.5;background:var(--gray-50);padding:8px 10px;border-radius:6px">
+            주민등록번호는 소득세법 제127조에 따른 원천징수 신고 목적으로만 수집됩니다.<br>
+            AES-256 암호화 저장, 세무법정 보관 기간(5년) 이후 파기됩니다.
+          </p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">은행명 <span style="color:var(--danger)">*</span></label>
+        <input id="app-bank-name" class="form-input" type="text" placeholder="국민은행">
+      </div>
+      <div class="form-group">
+        <label class="form-label">예금주명 <span style="color:var(--danger)">*</span></label>
+        <input id="app-account-holder" class="form-input" type="text" placeholder="홍길동">
+      </div>
+      <div class="form-group">
+        <label class="form-label">계좌번호 <span style="color:var(--danger)">*</span></label>
+        <input id="app-account-number" class="form-input" type="text" placeholder="000000-00-000000">
+      </div>
+    </div>
+
     <div id="app-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-app-submit" style="margin-top:8px">신청하기</button>
   `);
+
+  // URL 행 추가 함수
+  function addUrlRow(value = '') {
+    const list = $('app-url-list');
+    if (list.querySelectorAll('.app-url-row').length >= 5) return;
+    const row = document.createElement('div');
+    row.className = 'app-url-row';
+    row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px';
+    row.innerHTML = `
+      <input class="form-input app-url-input" type="url" placeholder="https://instagram.com/계정명" value="${value}" style="flex:1">
+      <button type="button" class="app-url-remove" style="padding:0 12px;background:none;border:1.5px solid var(--gray-200);border-radius:8px;font-size:16px;color:var(--gray-400);cursor:pointer">✕</button>
+    `;
+    row.querySelector('.app-url-remove').addEventListener('click', () => {
+      row.remove();
+      $('btn-add-url').style.display = list.querySelectorAll('.app-url-row').length >= 5 ? 'none' : 'block';
+    });
+    list.appendChild(row);
+    if (list.querySelectorAll('.app-url-row').length >= 5) {
+      $('btn-add-url').style.display = 'none';
+    }
+  }
+  addUrlRow(); // 첫 번째 행 기본 추가
+  $('btn-add-url').addEventListener('click', () => addUrlRow());
 
   // 사진 미리보기
   $('app-brand-photo').addEventListener('change', e => {
@@ -882,55 +987,127 @@ async function openApplyModal() {
     reader.readAsDataURL(file);
   });
 
+  // 거래유형 변경 → 정산 섹션 표시/숨김
+  $('app-brand-type').addEventListener('change', () => {
+    const type = $('app-brand-type').value;
+    const showSettlement = type === '위탁' || type === '매입';
+    $('settlement-section').style.display = showSettlement ? 'block' : 'none';
+    $('commission-row').style.display = type === '위탁' ? 'block' : 'none';
+  });
+
+  // 사업자 여부 변경 → 사업자/개인 필드 토글
+  document.querySelectorAll('input[name="app-biz-type"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isBiz = document.getElementById('app-biz-business').checked;
+      $('business-fields').style.display = isBiz ? 'block' : 'none';
+      $('individual-fields').style.display = isBiz ? 'none' : 'block';
+    });
+  });
+
   $('btn-app-submit').addEventListener('click', async () => {
     const brandName    = $('app-brand-name').value.trim();
+    const brandType    = $('app-brand-type').value;
     const phone        = $('app-phone').value.trim();
     const contactEmail = $('app-contact-email').value.trim();
     const role         = $('app-role').value;
     const errEl        = $('app-error');
 
-    if (!brandName)    { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
-    if (!phone)        { errEl.textContent = '연락처를 입력해 주세요.'; return; }
+    if (!brandName)  { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
+    if (!brandType)  { errEl.textContent = '거래유형을 선택해 주세요.'; return; }
+    if (!phone)      { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail) { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
-    if (!role)         { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
+    if (!role)       { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
+
+    const needSettlement = brandType === '위탁' || brandType === '매입';
+    if (needSettlement) {
+      const bizType = document.querySelector('input[name="app-biz-type"]:checked')?.value;
+      if (!bizType) { errEl.textContent = '사업자 여부를 선택해 주세요.'; return; }
+      if (!$('app-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
+      if (!$('app-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
+      if (!$('app-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
+    }
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
 
-    // 사진 업로드 (선택)
-    let photoUrl = '';
-    const photoFile = $('app-brand-photo').files[0];
-    if (photoFile) {
-      try {
-        const photoRef = ref(storage, `brand_applications/${currentUser.uid}_${Date.now()}_${photoFile.name}`);
-        await uploadBytes(photoRef, photoFile);
-        photoUrl = await getDownloadURL(photoRef);
-      } catch (_) { /* 사진 업로드 실패해도 신청은 계속 진행 */ }
+    try {
+      // 사진 업로드
+      let photoUrl = '';
+      const photoFile = $('app-brand-photo').files[0];
+      if (photoFile) {
+        try {
+          const photoRef = ref(storage, `brand_applications/${currentUser.uid}_${Date.now()}_${photoFile.name}`);
+          await uploadBytes(photoRef, photoFile);
+          photoUrl = await getDownloadURL(photoRef);
+        } catch (_) { /* 사진 실패해도 계속 */ }
+      }
+
+      // URL 수집
+      const websiteUrls = [...document.querySelectorAll('.app-url-input')]
+        .map(el => el.value.trim()).filter(Boolean);
+
+      // 정산 정보 구성
+      let settlementInfo = null;
+      if (needSettlement) {
+        const bizType = document.querySelector('input[name="app-biz-type"]:checked').value;
+        const isBiz = bizType === 'business';
+        const accountNumberRaw = $('app-account-number').value.trim();
+        const residentNumberRaw = !isBiz ? ($('app-resident-number').value.trim()) : '';
+
+        const [accountNumberEnc, residentNumberEnc] = await Promise.all([
+          encryptValue(accountNumberRaw),
+          encryptValue(residentNumberRaw),
+        ]);
+
+        settlementInfo = {
+          business_type:      bizType,
+          bank_name:          $('app-bank-name').value.trim(),
+          account_holder:     $('app-account-holder').value.trim(),
+          account_number:     accountNumberEnc,
+          ...(isBiz ? {
+            business_reg_number: $('app-biz-reg-number').value.trim(),
+            taxation_type:       $('app-taxation-type').value,
+          } : {
+            resident_number: residentNumberEnc,
+          }),
+        };
+      }
+
+      const commissionRate = brandType === '위탁'
+        ? parseFloat($('app-commission-rate').value) || 15
+        : null;
+
+      await addDoc(collection(db, 'brand_applications'), {
+        applicant_uid:           currentUser.uid,
+        applicant_email:         normalizeEmail(currentUser.email),
+        applicant_name:          currentUser.displayName || '',
+        applicant_phone:         phone,
+        applicant_contact_email: contactEmail,
+        applicant_role:          role,
+        brand_name:              brandName,
+        brand_type:              brandType,
+        brand_description:       $('app-brand-desc').value.trim(),
+        website_urls:            websiteUrls,
+        brand_photo_url:         photoUrl,
+        ...(settlementInfo ? { settlement_info: settlementInfo } : {}),
+        ...(commissionRate !== null ? { requested_commission_rate: commissionRate } : {}),
+        status:                  STATUS.SUBMITTED,
+        submitted_at:            serverTimestamp(),
+      });
+
+      sendApplicationReceivedEmail({
+        toEmail:   normalizeEmail(currentUser.email),
+        toName:    currentUser.displayName || '',
+        brandName,
+      });
+
+      closeModal();
+      renderPage('pending');
+    } catch (e) {
+      errEl.textContent = '신청 중 오류가 발생했습니다. 다시 시도해 주세요.';
+      $('btn-app-submit').disabled = false;
+      $('btn-app-submit').textContent = '신청하기';
     }
-
-    await addDoc(collection(db, 'brand_applications'), {
-      applicant_uid:           currentUser.uid,
-      applicant_email:         normalizeEmail(currentUser.email),
-      applicant_name:          currentUser.displayName || '',
-      applicant_phone:         phone,
-      applicant_contact_email: contactEmail,
-      applicant_role:          role,
-      brand_name:              brandName,
-      brand_description:       $('app-brand-desc').value.trim(),
-      brand_link:              $('app-brand-link').value.trim(),
-      brand_photo_url:         photoUrl,
-      status:                  STATUS.SUBMITTED,
-      submitted_at:            serverTimestamp(),
-    });
-
-    sendApplicationReceivedEmail({
-      toEmail:   normalizeEmail(currentUser.email),
-      toName:    currentUser.displayName || '',
-      brandName,
-    });
-
-    closeModal();
-    renderPage('pending');
   });
 }
 
