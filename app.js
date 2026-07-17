@@ -313,8 +313,20 @@ async function checkApplicationStatus() {
   renderPage('brand-list');
 }
 
+// ── 브랜드명 캐시 (Firestore에서 한 번만 조회) ──
+const _brandNameCache = {};
+async function getBrandName(brandId) {
+  if (_brandNameCache[brandId]) return _brandNameCache[brandId];
+  try {
+    const snap = await getDoc(doc(db, 'brands', brandId));
+    const name = snap.data()?.brand_name || brandId;
+    _brandNameCache[brandId] = name;
+    return name;
+  } catch (_) { return brandId; }
+}
+
 // ── 사이드바 ──
-function updateSidebarUser(memberStatus) {
+async function updateSidebarUser(memberStatus) {
   $('user-name-text').textContent = currentUser.displayName || currentUser.email;
   $('user-role-text').textContent = memberStatus;
 
@@ -324,37 +336,38 @@ function updateSidebarUser(memberStatus) {
   } else {
     avatarEl.textContent = (currentUser.displayName || currentUser.email || '?')[0].toUpperCase();
   }
-  renderSidebar(memberStatus);
+  await renderSidebar(memberStatus);
 }
 
-function renderSidebar(memberStatus) {
+async function renderSidebar(memberStatus) {
   const nav = $('sidebar-nav');
 
   if (memberStatus === STATUS.BRAND) {
     const brandIds = getUserBrandIds(currentUserDoc);
 
-    // 브랜드 스위처: 여러 브랜드면 버튼 목록으로
-    let brandSwitcher = '';
+    // 브랜드명 조회 (캐시 우선)
+    const brandNames = await Promise.all(brandIds.map(id => getBrandName(id)));
+    const nameMap = Object.fromEntries(brandIds.map((id, i) => [id, brandNames[i]]));
+
+    // 브랜드 섹션: 접힌 사이드바에서 숨기는 클래스 sidebar-brand-section 사용
+    let brandSection = '';
     if (brandIds.length > 1) {
-      brandSwitcher = `<div id="brand-switcher" style="margin:0 0 4px;padding:8px 8px 4px">
-        <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.06em;padding:0 4px;margin-bottom:6px">담당 브랜드</div>
+      brandSection = `<div class="sidebar-brand-section">
+        <div class="sidebar-brand-label">담당 브랜드</div>
         ${brandIds.map(id => `
-          <button class="brand-switch-btn${id === activeBrandId ? ' active' : ''}" data-id="${id}"
-            style="display:block;width:100%;text-align:left;padding:8px 12px;border-radius:8px;border:1.5px solid ${id === activeBrandId ? 'var(--primary)' : 'var(--gray-200)'};
-                   background:${id === activeBrandId ? '#eff6ff' : '#fff'};color:${id === activeBrandId ? 'var(--primary)' : 'var(--gray-700)'};
-                   font-size:13px;font-weight:600;cursor:pointer;margin-bottom:4px;transition:all .15s">
-            ${id === activeBrandId ? '✓ ' : ''}${id}
+          <button class="brand-switch-btn${id === activeBrandId ? ' active' : ''}" data-id="${id}">
+            ${id === activeBrandId ? '✓ ' : ''}${nameMap[id]}
           </button>`).join('')}
       </div>`;
     } else if (brandIds.length === 1) {
-      brandSwitcher = `<div style="padding:8px 12px;font-size:13px;font-weight:700;color:var(--gray-700);margin-bottom:4px">
-        <span style="font-size:11px;color:var(--gray-400);font-weight:500;display:block;margin-bottom:2px">담당 브랜드</span>
-        ${brandIds[0]}
+      brandSection = `<div class="sidebar-brand-section">
+        <div class="sidebar-brand-label">담당 브랜드</div>
+        <div class="sidebar-brand-name">${nameMap[brandIds[0]]}</div>
       </div>`;
     }
 
     nav.innerHTML = `
-      ${brandSwitcher}
+      ${brandSection}
       <div class="nav-section-label">브랜드 관리</div>
       <div class="nav-item" data-page="dashboard"><span class="icon">🏠</span><span class="nav-label">대시보드</span></div>
       <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span><span class="nav-label">브랜드 정보</span></div>

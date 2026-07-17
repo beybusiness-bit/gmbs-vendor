@@ -127,7 +127,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   margin: 0 auto;
 }
 .login-logo { font-size: 22px; font-weight: 800; color: var(--primary); margin-bottom: 4px; }
-.login-sub  { font-size: 13px; color: var(--gray-400); margin-bottom: 36px; }
+.login-sub  { font-size: 17px; font-weight: 600; color: var(--gray-700); margin-bottom: 36px; }
 
 .btn {
   display: inline-flex;
@@ -486,6 +486,23 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--gray-50); }
+
+/* 브랜드 섹션 (다크 사이드바 안, 접힐 때 숨김) */
+.sidebar-brand-section {
+  padding: 12px 8px 4px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  margin-bottom: 6px;
+}
+.sidebar-brand-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: rgba(255,255,255,.35);
+  padding: 0 4px 6px;
+}
+.sidebar-brand-name {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  padding: 4px 12px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sidebar.collapsed .sidebar-brand-section { display: none; }
 
 /* 브랜드 스위처 (다크 사이드바 안) */
 .brand-switch-btn {
