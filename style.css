@@ -165,7 +165,8 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   top: 0; left: 0;
   width: var(--sidebar-w);
   height: 100vh;
-  background: #1a0533;
+  background: #fff;
+  border-right: 1px solid var(--gray-200);
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -182,8 +183,8 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   justify-content: space-between;
   font-size: 16px;
   font-weight: 800;
-  color: var(--accent);
-  border-bottom: 1px solid rgba(255,255,255,.08);
+  color: var(--primary);
+  border-bottom: 1px solid var(--gray-100);
   flex-shrink: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -197,25 +198,25 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   cursor: pointer;
   padding: 6px;
   border-radius: 6px;
-  color: rgba(255,255,255,.5);
+  color: var(--gray-400);
   flex-shrink: 0;
   transition: color .15s, background .15s;
   font-size: 16px;
   line-height: 1;
 }
-.sidebar-toggle:hover { color: #fff; background: rgba(255,255,255,.08); }
+.sidebar-toggle:hover { color: var(--primary); background: var(--primary-light); }
 
 .sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 0; }
 .sidebar-nav::-webkit-scrollbar { width: 4px; }
-.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 2px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: var(--gray-200); border-radius: 2px; }
 
 .nav-section-label {
   font-size: 10px;
   font-weight: 700;
-  color: rgba(255,255,255,.35);
+  color: var(--gray-400);
   text-transform: uppercase;
   letter-spacing: .08em;
-  padding: 8px 20px 4px;
+  padding: 10px 20px 4px;
   white-space: nowrap;
   overflow: hidden;
   transition: opacity .15s;
@@ -228,7 +229,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   gap: 10px;
   padding: 10px 16px;
   font-size: 14px;
-  color: rgba(255,255,255,.65);
+  color: var(--gray-600);
   cursor: pointer;
   border-radius: 8px;
   margin: 1px 8px;
@@ -236,9 +237,8 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   white-space: nowrap;
   overflow: hidden;
 }
-.nav-item:hover  { background: rgba(255,255,255,.08); color: #fff; }
-.nav-item.active { background: var(--primary); color: #fff; font-weight: 600; }
-.nav-item.active .icon { color: var(--accent); }
+.nav-item:hover  { background: var(--gray-50); color: var(--primary); }
+.nav-item.active { background: var(--primary-light); color: var(--primary); font-weight: 700; }
 .nav-item .icon  { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
 .nav-item .nav-label { overflow: hidden; transition: opacity .15s; }
 .sidebar.collapsed .nav-label { opacity: 0; width: 0; }
@@ -246,8 +246,8 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 
 .nav-badge {
   margin-left: auto;
-  background: var(--accent);
-  color: var(--gray-900);
+  background: var(--primary);
+  color: #fff;
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -261,7 +261,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 
 .sidebar-footer {
   padding: 12px;
-  border-top: 1px solid rgba(255,255,255,.08);
+  border-top: 1px solid var(--gray-100);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -280,8 +280,8 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 .user-avatar {
   width: 34px; height: 34px;
   border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
+  background: var(--primary-light);
+  color: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -289,11 +289,11 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   font-weight: 700;
   flex-shrink: 0;
   overflow: hidden;
-  border: 2px solid rgba(157,255,32,.4);
+  border: 2px solid var(--primary-light);
 }
 .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.user-name { font-size: 12px; font-weight: 600; color: #fff; }
-.user-role { font-size: 11px; color: rgba(255,255,255,.45); }
+.user-name { font-size: 12px; font-weight: 600; color: var(--gray-900); }
+.user-role { font-size: 11px; color: var(--gray-400); }
 
 .sidebar-footer-btns {
   display: flex;
@@ -305,16 +305,16 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 .btn-signout {
   flex: 1;
   padding: 8px;
-  background: rgba(255,255,255,.08);
-  color: rgba(255,255,255,.7);
-  border: none;
+  background: var(--gray-50);
+  color: var(--gray-600);
+  border: 1px solid var(--gray-200);
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-signout:hover { background: rgba(255,255,255,.14); color: #fff; }
+.btn-signout:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary-light); }
 
 /* ── 메인 콘텐츠 ── */
 .main-wrap {
@@ -495,13 +495,13 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   padding: 10px 12px;
   margin: 8px 8px 4px;
   border-radius: 10px;
-  background: rgba(255,255,255,.07);
-  border: 1.5px solid rgba(255,255,255,.12);
+  background: var(--primary-light);
+  border: 1.5px solid rgba(140,82,255,.18);
   cursor: pointer;
   transition: background .15s, border-color .15s;
   min-width: 0;
 }
-.sidebar-brand-header:hover { background: rgba(255,255,255,.12); border-color: rgba(157,255,32,.4); }
+.sidebar-brand-header:hover { background: #ece3ff; border-color: var(--primary); }
 .brand-avatar-sm {
   width: 34px; height: 34px;
   border-radius: 50%;
@@ -510,16 +510,16 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 }
 .brand-avatar-placeholder {
   display: flex; align-items: center; justify-content: center;
-  background: rgba(157,255,32,.18); color: var(--accent);
+  background: rgba(140,82,255,.15); color: var(--primary);
   font-weight: 700; font-size: 14px;
 }
 .brand-header-name {
   flex: 1; min-width: 0;
-  font-size: 13px; font-weight: 700; color: #fff;
+  font-size: 13px; font-weight: 700; color: var(--primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .brand-header-chevron {
-  font-size: 11px; color: rgba(255,255,255,.45); flex-shrink: 0;
+  font-size: 11px; color: var(--primary); opacity: .6; flex-shrink: 0;
 }
 .sidebar.collapsed .sidebar-brand-header {
   justify-content: center;
