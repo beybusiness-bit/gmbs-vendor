@@ -1,4 +1,6 @@
-import { db, collection, getDocs, doc, addDoc, updateDoc, setDoc, serverTimestamp } from '../firebase-init.js';
+import {
+  db, collection, getDocs, doc, addDoc, updateDoc, deleteDoc, setDoc, serverTimestamp,
+} from '../firebase-init.js';
 
 export async function renderPersons({ userDoc, user, container, showModal, closeModal }) {
   const brandId = userDoc?.brand_id;
@@ -20,7 +22,7 @@ export async function renderPersons({ userDoc, user, container, showModal, close
         <div>
           <h2 style="font-size:18px;font-weight:700">담당자 목록</h2>
           <p style="font-size:13px;color:var(--gray-600);margin-top:4px">
-            본인 정보는 직접 수정할 수 있습니다.
+            브랜드 담당자를 관리합니다.
           </p>
         </div>
         <button class="btn btn-primary" id="btn-add-person" style="width:auto;padding:10px 18px">
@@ -47,6 +49,14 @@ export async function renderPersons({ userDoc, user, container, showModal, close
       openPersonModal({ brandId, person, showModal, closeModal, container, userDoc, user });
     });
   });
+
+  container.querySelectorAll('.btn-delete-person').forEach(btn => {
+    const personId = btn.dataset.id;
+    const person   = persons.find(p => p.id === personId);
+    btn.addEventListener('click', () => {
+      openDeleteConfirm({ brandId, person, showModal, closeModal, container, userDoc, user });
+    });
+  });
 }
 
 function personCard(p, myEmail, myPersonId) {
@@ -54,8 +64,8 @@ function personCard(p, myEmail, myPersonId) {
   return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
             <span style="font-size:16px;font-weight:700">${p.name || '-'}</span>
             ${isMe ? '<span class="badge badge-blue">나</span>' : ''}
             ${p.role ? `<span class="badge badge-gray">${p.role}</span>` : ''}
@@ -63,12 +73,54 @@ function personCard(p, myEmail, myPersonId) {
           <div style="font-size:13px;color:var(--gray-600);display:grid;gap:3px">
             ${p.phone ? `<span>📞 ${p.phone}</span>` : ''}
             ${p.contact_email ? `<span>✉️ ${p.contact_email}</span>` : ''}
+            ${p.login_google_email ? `<span style="color:var(--gray-400);font-size:12px">🔑 ${p.login_google_email}</span>` : ''}
           </div>
         </div>
-        ${isMe ? `<button class="btn btn-outline btn-edit-person" data-id="${p.id}"
-          style="width:auto;padding:8px 14px;font-size:13px">수정</button>` : ''}
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-outline btn-edit-person" data-id="${p.id}"
+            style="width:auto;padding:6px 12px;font-size:13px">수정</button>
+          ${!isMe ? `<button class="btn btn-delete-person" data-id="${p.id}"
+            style="width:auto;padding:6px 12px;font-size:13px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;cursor:pointer">삭제</button>` : ''}
+        </div>
       </div>
     </div>`;
+}
+
+function openDeleteConfirm({ brandId, person, showModal, closeModal, container, userDoc, user }) {
+  showModal(`
+    <div class="modal-title">담당자 삭제</div>
+    <p style="margin-bottom:20px;color:var(--gray-600)">
+      <strong>${person.name}</strong> 담당자를 삭제하시겠습니까?<br>
+      <span style="font-size:13px;color:var(--danger);margin-top:6px;display:block">
+        삭제 후에는 해당 담당자가 포털에 로그인할 수 없게 됩니다.
+      </span>
+    </p>
+    <div id="del-error" class="form-error"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-outline" id="btn-del-cancel" style="flex:1">취소</button>
+      <button class="btn" id="btn-del-confirm"
+        style="flex:1;background:var(--danger);color:#fff;border:none;border-radius:10px;height:48px;font-weight:700;cursor:pointer">
+        삭제
+      </button>
+    </div>
+  `);
+
+  document.getElementById('btn-del-cancel').addEventListener('click', closeModal);
+  document.getElementById('btn-del-confirm').addEventListener('click', async () => {
+    const errEl = document.getElementById('del-error');
+    const btn   = document.getElementById('btn-del-confirm');
+    btn.disabled = true;
+    btn.textContent = '삭제 중...';
+    try {
+      await deleteDoc(doc(db, 'brands', brandId, 'persons', person.id));
+      closeModal();
+      await renderPersons({ userDoc, user, container, showModal, closeModal });
+    } catch (e) {
+      errEl.textContent = '삭제 중 오류가 발생했습니다.';
+      btn.disabled = false;
+      btn.textContent = '삭제';
+    }
+  });
 }
 
 async function openPersonModal({ brandId, person, showModal, closeModal, container, userDoc, user }) {
@@ -149,13 +201,12 @@ async function openPersonModal({ brandId, person, showModal, closeModal, contain
         const loginEmail = (document.getElementById('p-login-email').value || '').toLowerCase().trim();
         data.login_google_email = loginEmail;
         data.created_at = serverTimestamp();
-        // vendor_accounts에 "초대됨" 상태로 생성
         await Promise.all([
           addDoc(collection(db, 'brands', brandId, 'persons'), data),
           setDoc(doc(db, 'vendor_accounts', loginEmail), {
             uid:       null,
             brand_id:  brandId,
-            person_id: null, // 추가 후 ID를 알 수 없으므로 나중에 연결
+            person_id: null,
             status:    '초대됨',
             created_at: serverTimestamp(),
           }),

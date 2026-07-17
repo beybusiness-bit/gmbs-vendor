@@ -52,6 +52,13 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
           </button>
         </div>
         <div class="info-grid">
+          ${b.brand_code ? `
+          <div class="info-row">
+            <span class="info-label">브랜드 코드</span>
+            <span class="info-value" style="display:flex;align-items:center;gap:8px">
+              <code style="background:var(--primary-light);color:var(--primary);padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.05em">${b.brand_code}</code>
+            </span>
+          </div>` : ''}
           ${infoRow('사업자 등록번호', b.biz_no)}
           ${infoRow('대표자명', b.ceo_name)}
           ${infoRow('카테고리', b.category)}
