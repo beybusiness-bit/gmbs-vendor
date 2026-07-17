@@ -264,91 +264,92 @@ onAuthStateChanged(auth, async (user) => {
   showLoading(true);
   currentUser = user;
 
-  const email   = normalizeEmail(user.email);
-  const uid     = user.uid;
-  const userRef = doc(db, 'users', uid);
-  const userSnap = await getDoc(userRef);
+  try {
+    const email   = normalizeEmail(user.email);
+    const uid     = user.uid;
+    const userRef = doc(db, 'users', uid);
+    const userSnap = await getDoc(userRef);
 
-  if (!userSnap.exists()) {
-    const vendorRef  = doc(db, 'vendor_accounts', email);
-    const vendorSnap = await getDoc(vendorRef);
-
-    if (vendorSnap.exists() && vendorSnap.data().status === STATUS.INVITED) {
-      const vd = vendorSnap.data();
-      await setDoc(userRef, {
-        email,
-        name:          user.displayName || '',
-        phone:         '',
-        member_status: STATUS.BRAND,
-        brand_id:      vd.brand_id  || null,
-        person_id:     vd.person_id || null,
-        created_at:    serverTimestamp(),
-        updated_at:    serverTimestamp(),
-      });
-      await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
-      currentUserDoc = (await getDoc(userRef)).data();
-      await syncPersonDoc(user, currentUserDoc);
-      renderApp(STATUS.BRAND, true);
-    } else {
-      await setDoc(userRef, {
-        email,
-        name:          user.displayName || '',
-        phone:         '',
-        member_status: STATUS.GENERAL,
-        brand_id:      null,
-        person_id:     null,
-        created_at:    serverTimestamp(),
-        updated_at:    serverTimestamp(),
-      });
-      currentUserDoc = (await getDoc(userRef)).data();
-      await syncPersonDoc(user, currentUserDoc);
-      renderApp(STATUS.GENERAL);
-    }
-  } else {
-    currentUserDoc = userSnap.data();
-
-    // 기존 사용자도 새 초대(vendor_accounts)가 있으면 브랜드 추가 처리
-    try {
+    if (!userSnap.exists()) {
       const vendorRef  = doc(db, 'vendor_accounts', email);
       const vendorSnap = await getDoc(vendorRef);
+
       if (vendorSnap.exists() && vendorSnap.data().status === STATUS.INVITED) {
         const vd = vendorSnap.data();
-        const newBrandId = vd.brand_id;
-        if (newBrandId) {
-          const existingIds = getUserBrandIds(currentUserDoc);
-          if (!existingIds.includes(newBrandId)) {
-            const updatedIds = existingIds.length ? [...existingIds, newBrandId] : [newBrandId];
-            await setDoc(userRef, {
-              member_status: STATUS.BRAND,
-              brand_id:  newBrandId,
-              brand_ids: updatedIds,
-              updated_at: serverTimestamp(),
-            }, { merge: true });
+        await setDoc(userRef, {
+          email,
+          name:          user.displayName || '',
+          phone:         '',
+          member_status: STATUS.BRAND,
+          brand_id:      vd.brand_id  || null,
+          person_id:     vd.person_id || null,
+          created_at:    serverTimestamp(),
+          updated_at:    serverTimestamp(),
+        });
+        await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
+        currentUserDoc = (await getDoc(userRef)).data();
+        syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
+        renderApp(STATUS.BRAND, true);
+      } else {
+        await setDoc(userRef, {
+          email,
+          name:          user.displayName || '',
+          phone:         '',
+          member_status: STATUS.GENERAL,
+          brand_id:      null,
+          person_id:     null,
+          created_at:    serverTimestamp(),
+          updated_at:    serverTimestamp(),
+        });
+        currentUserDoc = (await getDoc(userRef)).data();
+        syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
+        renderApp(STATUS.GENERAL);
+      }
+    } else {
+      currentUserDoc = userSnap.data();
+
+      // 기존 사용자도 새 초대(vendor_accounts)가 있으면 브랜드 추가 처리
+      try {
+        const vendorRef  = doc(db, 'vendor_accounts', email);
+        const vendorSnap = await getDoc(vendorRef);
+        if (vendorSnap.exists() && vendorSnap.data().status === STATUS.INVITED) {
+          const vd = vendorSnap.data();
+          const newBrandId = vd.brand_id;
+          if (newBrandId) {
+            const existingIds = getUserBrandIds(currentUserDoc);
+            if (!existingIds.includes(newBrandId)) {
+              const updatedIds = existingIds.length ? [...existingIds, newBrandId] : [newBrandId];
+              await setDoc(userRef, {
+                member_status: STATUS.BRAND,
+                brand_id:  newBrandId,
+                brand_ids: updatedIds,
+                updated_at: serverTimestamp(),
+              }, { merge: true });
+            }
+            await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
+            currentUserDoc = (await getDoc(userRef)).data();
           }
-          await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
-          currentUserDoc = (await getDoc(userRef)).data();
         }
-      }
-    } catch (_) { /* 초대 확인 실패는 무시 */ }
+      } catch (_) { /* 초대 확인 실패는 무시 */ }
 
-    // 브랜드 담당자인데 brand_id가 null이거나 브랜드가 삭제된 경우 안내 화면 표시
-    if (currentUserDoc.member_status === STATUS.BRAND) {
-      const brandId = currentUserDoc.brand_id;
-      if (!brandId) {
+      // 브랜드 담당자인데 brand_id가 null인 경우 안내 화면 표시
+      // (브랜드 문서 존재 여부는 각 페이지에서 처리 — 로그인 지연 방지)
+      if (currentUserDoc.member_status === STATUS.BRAND && !currentUserDoc.brand_id) {
         showNoBrandState();
         return;
       }
-      const brandSnap = await getDoc(doc(db, 'brands', brandId)).catch(() => null);
-      if (!brandSnap || !brandSnap.exists()) {
-        await updateDoc(userRef, { brand_id: null, updated_at: serverTimestamp() }).catch(() => {});
-        currentUserDoc = { ...currentUserDoc, brand_id: null };
-        showNoBrandState();
-        return;
-      }
+
+      syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
+      renderApp(currentUserDoc.member_status || STATUS.GENERAL);
     }
-
-    await syncPersonDoc(user, currentUserDoc);
-    renderApp(currentUserDoc.member_status || STATUS.GENERAL);
+  } catch (e) {
+    // 예외 발생 시 로딩 화면이 고정되지 않도록 보장
+    console.error('앱 초기화 오류:', e);
+    if (currentUserDoc) {
+      renderApp(currentUserDoc.member_status || STATUS.GENERAL);
+    } else {
+      showLogin();
+    }
   }
 });
 
