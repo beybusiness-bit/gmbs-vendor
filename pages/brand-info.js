@@ -114,8 +114,18 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
 
   const hasSettlement = settlementHtml.length > 0;
 
+  const contractCompleteNotice = onboardingStatus === '계약완료' ? `
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
+      <span style="font-size:20px;flex-shrink:0">✍️</span>
+      <div>
+        <div style="font-weight:700;font-size:14px;color:#1d4ed8;margin-bottom:4px">계약 서명이 완료되었습니다</div>
+        <div style="font-size:13px;color:#3b82f6;line-height:1.6">관리자 검토 후 최종 승인이 완료되면 입점이 확정됩니다.</div>
+      </div>
+    </div>` : '';
+
   container.innerHTML = `
     <div style="max-width:720px">
+      ${contractCompleteNotice}
       <div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
           <div>
