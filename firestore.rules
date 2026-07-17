@@ -64,10 +64,16 @@ service cloud.firestore {
       // 해당 브랜드 담당자(연결됨)만 read
       allow read: if request.auth != null && isBrandMember(brandId);
       // vendor가 수정 가능한 필드만 write 허용
+      // brand_code, fee_info, onboarding_status, brand_type, brand_name은 admin 전용
       allow update: if request.auth != null
         && isBrandMember(brandId)
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['phone', 'email', 'address', 'description', 'updated_at']);
+             .hasOnly(['brand_desc', 'website_urls', 'settlement_info', 'brand_photo_url', 'updated_at'])
+        && (
+          !('settlement_info' in request.resource.data) ||
+          !request.resource.data.settlement_info.keys()
+            .hasAny(['id_card_url', 'bank_book_url', 'biz_reg_url'])
+        );
       allow create, delete: if false;
 
       // ── brands/{brandId}/persons 서브컬렉션 ──
@@ -131,6 +137,12 @@ service cloud.firestore {
       allow read: if request.auth != null
         && resource.data.brand_id != null
         && isBrandMember(resource.data.brand_id);
+      allow write: if false;
+    }
+
+    // ── app_configs 컬렉션 (암호화 키 등 앱 설정 — admin이 쓰고 vendor가 읽음) ──
+    match /app_configs/{docId} {
+      allow read: if request.auth != null;
       allow write: if false;
     }
 

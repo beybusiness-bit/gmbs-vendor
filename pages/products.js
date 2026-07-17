@@ -43,13 +43,23 @@ export async function renderProducts({ userDoc, container, showModal, closeModal
 
   container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
 
-  const q    = query(
-    collection(db, 'products'),
-    where('brand_id', '==', brandId),
-    orderBy('submitted_at', 'desc'),
-  );
-  const snap = await getDocs(q);
-  const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  let products;
+  try {
+    const q = query(
+      collection(db, 'products'),
+      where('brand_id', '==', brandId),
+      orderBy('submitted_at', 'desc'),
+    );
+    const snap = await getDocs(q);
+    products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.error('상품 목록 로드 실패:', e);
+    container.innerHTML = `<div class="card" style="text-align:center;padding:40px;color:var(--danger)">
+      상품 목록을 불러오지 못했습니다.<br>
+      <span style="font-size:12px;color:var(--gray-400);margin-top:8px;display:block">${e.message}</span>
+    </div>`;
+    return;
+  }
 
   container.innerHTML = `
     <div style="max-width:900px">
