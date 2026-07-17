@@ -495,9 +495,8 @@ brand_applications/{id}      // 새 브랜드 등록 신청
   applicant_uid, applicant_email, applicant_name, applicant_phone, applicant_role,
   applicant_contact_email,
   brand_name,
-  brand_type("PB"|"위탁"|"매입"),
+  // brand_type, requested_commission_rate 는 신청 폼에서 제거됨 (어드민이 승인 시 직접 결정)
   website_urls: string[],
-  requested_commission_rate: number,    // 위탁 신청 시 참고용 요청 수수료율
   settlement_info: {
     business_type("business"|"individual"),
     business_reg_number?,               // 사업자 선택 시
