@@ -55,6 +55,18 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // ── persons 최상위 컬렉션 (어드민 담당자 목록 기준) ──
+    match /persons/{personId} {
+      // 벤더 본인 문서 생성 (login_google_email이 본인 이메일)
+      allow create: if request.auth != null
+        && request.resource.data.login_google_email == request.auth.token.email;
+      // 벤더 본인 문서 갱신 (이름·이메일만)
+      allow update: if request.auth != null
+        && resource.data.login_google_email == request.auth.token.email
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['name', 'login_google_email', 'updated_at']);
+    }
+
     // ── brand_join_requests 컬렉션 ──
     match /brand_join_requests/{docId} {
       allow read: if request.auth != null
