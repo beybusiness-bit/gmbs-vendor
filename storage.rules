@@ -12,10 +12,13 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*');
     }
 
-    // 브랜드 정보 사진 — 해당 브랜드 담당자만 업로드
+    // 브랜드 정보 사진 — 로그인 사용자가 본인 uid로 시작하는 파일명만 업로드
+    // (Storage Rules는 Firestore를 읽을 수 없어 brand 멤버십 직접 검증 불가)
+    // 파일명 형식: {uid}_{timestamp}.{ext}
     match /brands/{brandId}/{fileName} {
       allow read:  if request.auth != null;
       allow write: if request.auth != null
+                   && fileName.matches(request.auth.uid + '_.*')
                    && request.resource.size < 5 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
     }
