@@ -487,35 +487,91 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--gray-50); }
 
-/* 브랜드 섹션 (다크 사이드바 안, 접힐 때 숨김) */
-.sidebar-brand-section {
-  padding: 12px 8px 4px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
-  margin-bottom: 6px;
+/* ── 사이드바 브랜드 헤더 (클릭 → 스위처 팝업) ── */
+.sidebar-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 8px 8px 4px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.07);
+  border: 1.5px solid rgba(255,255,255,.12);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  min-width: 0;
 }
-.sidebar-brand-label {
-  font-size: 10px; font-weight: 700; letter-spacing: .06em;
-  text-transform: uppercase; color: rgba(255,255,255,.35);
-  padding: 0 4px 6px;
+.sidebar-brand-header:hover { background: rgba(255,255,255,.12); border-color: rgba(157,255,32,.4); }
+.brand-avatar-sm {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
 }
-.sidebar-brand-name {
-  font-size: 13px; font-weight: 700; color: var(--accent);
-  padding: 4px 12px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.brand-avatar-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(157,255,32,.18); color: var(--accent);
+  font-weight: 700; font-size: 14px;
 }
-.sidebar.collapsed .sidebar-brand-section { display: none; }
-
-/* 브랜드 스위처 (다크 사이드바 안) */
-.brand-switch-btn {
-  display: block; width: calc(100% - 16px); margin: 0 8px 4px;
-  text-align: left; padding: 8px 12px; border-radius: 8px;
-  border: 1.5px solid rgba(255,255,255,.15);
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.7);
-  font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+.brand-header-name {
+  flex: 1; min-width: 0;
+  font-size: 13px; font-weight: 700; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.brand-switch-btn:hover  { border-color: var(--accent); color: #fff; }
-.brand-switch-btn.active { border-color: var(--accent); background: rgba(157,255,32,.12); color: var(--accent); }
-.sidebar.collapsed .brand-switch-btn { display: none; }
+.brand-header-chevron {
+  font-size: 11px; color: rgba(255,255,255,.45); flex-shrink: 0;
+}
+.sidebar.collapsed .sidebar-brand-header {
+  justify-content: center;
+  padding: 8px;
+  margin: 8px 6px 4px;
+  border-radius: 50%;
+  width: 44px; height: 44px;
+}
+.sidebar.collapsed .brand-header-name,
+.sidebar.collapsed .brand-header-chevron { display: none; }
+
+/* ── 브랜드 스위처 팝업 ── */
+.brand-switcher-popup {
+  position: fixed;
+  z-index: 9999;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.1);
+  padding: 8px 0;
+  min-width: 220px;
+  display: none;
+}
+.brand-switcher-popup.open { display: block; }
+.bsp-section-label {
+  font-size: 11px; font-weight: 700; color: var(--gray-400);
+  letter-spacing: .05em; text-transform: uppercase;
+  padding: 8px 16px 4px;
+}
+.bsp-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.bsp-item:hover { background: var(--gray-50); }
+.bsp-item-active { cursor: default; }
+.bsp-item-active:hover { background: transparent; }
+.bsp-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%; object-fit: cover; flex-shrink: 0;
+}
+.bsp-name { flex: 1; font-size: 14px; font-weight: 600; color: var(--gray-900); }
+.bsp-check { color: var(--primary); font-size: 15px; font-weight: 700; }
+.bsp-divider { height: 1px; background: var(--gray-100); margin: 6px 0; }
+.bsp-action {
+  display: block; width: 100%; text-align: left;
+  padding: 9px 16px;
+  background: none; border: none;
+  font-size: 13px; font-weight: 600; color: var(--primary);
+  cursor: pointer; transition: background .12s;
+}
+.bsp-action:hover { background: var(--primary-light); }
 
 @media (max-width: 680px) {
   .sidebar { transform: translateX(-100%); transition: transform .2s; }

@@ -313,16 +313,20 @@ async function checkApplicationStatus() {
   renderPage('brand-list');
 }
 
-// ── 브랜드명 캐시 (Firestore에서 한 번만 조회) ──
-const _brandNameCache = {};
-async function getBrandName(brandId) {
-  if (_brandNameCache[brandId]) return _brandNameCache[brandId];
+// ── 브랜드 데이터 캐시 (이름 + 사진) ──
+const _brandDataCache = {};
+async function getBrandData(brandId) {
+  if (_brandDataCache[brandId]) return _brandDataCache[brandId];
   try {
     const snap = await getDoc(doc(db, 'brands', brandId));
-    const name = snap.data()?.brand_name || brandId;
-    _brandNameCache[brandId] = name;
-    return name;
-  } catch (_) { return brandId; }
+    const d = snap.data() || {};
+    const data = { name: d.brand_name || brandId, photoUrl: d.brand_photo_url || null };
+    _brandDataCache[brandId] = data;
+    return data;
+  } catch (_) { return { name: brandId, photoUrl: null }; }
+}
+async function getBrandName(brandId) {
+  return (await getBrandData(brandId)).name;
 }
 
 // ── 사이드바 ──
@@ -339,36 +343,28 @@ async function updateSidebarUser(memberStatus) {
   await renderSidebar(memberStatus);
 }
 
+function _brandAvatarHtml(photoUrl, name, cls) {
+  if (photoUrl) return `<img src="${photoUrl}" alt="${name}" class="${cls}">`;
+  const initial = (name || '?')[0].toUpperCase();
+  return `<div class="${cls} brand-avatar-placeholder">${initial}</div>`;
+}
+
 async function renderSidebar(memberStatus) {
   const nav = $('sidebar-nav');
 
   if (memberStatus === STATUS.BRAND) {
     const brandIds = getUserBrandIds(currentUserDoc);
-
-    // 브랜드명 조회 (캐시 우선)
-    const brandNames = await Promise.all(brandIds.map(id => getBrandName(id)));
-    const nameMap = Object.fromEntries(brandIds.map((id, i) => [id, brandNames[i]]));
-
-    // 브랜드 섹션: 접힌 사이드바에서 숨기는 클래스 sidebar-brand-section 사용
-    let brandSection = '';
-    if (brandIds.length > 1) {
-      brandSection = `<div class="sidebar-brand-section">
-        <div class="sidebar-brand-label">담당 브랜드</div>
-        ${brandIds.map(id => `
-          <button class="brand-switch-btn${id === activeBrandId ? ' active' : ''}" data-id="${id}">
-            ${id === activeBrandId ? '✓ ' : ''}${nameMap[id]}
-          </button>`).join('')}
-      </div>`;
-    } else if (brandIds.length === 1) {
-      brandSection = `<div class="sidebar-brand-section">
-        <div class="sidebar-brand-label">담당 브랜드</div>
-        <div class="sidebar-brand-name">${nameMap[brandIds[0]]}</div>
-      </div>`;
-    }
+    const dataList = await Promise.all(brandIds.map(id => getBrandData(id)));
+    const dataMap  = Object.fromEntries(brandIds.map((id, i) => [id, dataList[i]]));
+    const current  = dataMap[activeBrandId] || dataList[0] || { name: '', photoUrl: null };
 
     nav.innerHTML = `
-      ${brandSection}
-      <div class="nav-section-label">브랜드 관리</div>
+      <div class="sidebar-brand-header" id="brand-header-btn" title="브랜드 전환">
+        ${_brandAvatarHtml(current.photoUrl, current.name, 'brand-avatar-sm')}
+        <span class="brand-header-name nav-label">${current.name}</span>
+        <span class="brand-header-chevron nav-label" id="brand-chevron">▾</span>
+      </div>
+
       <div class="nav-item" data-page="dashboard"><span class="icon">🏠</span><span class="nav-label">대시보드</span></div>
       <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span><span class="nav-label">브랜드 정보</span></div>
       <div class="nav-item" data-page="persons"><span class="icon">👥</span><span class="nav-label">담당자 관리</span></div>
@@ -381,21 +377,86 @@ async function renderSidebar(memberStatus) {
       <div class="nav-item" data-page="notices"><span class="icon">📢</span><span class="nav-label">공지사항</span></div>
       <div class="nav-item" data-page="faq-page"><span class="icon">❓</span><span class="nav-label">자주하는 질문</span></div>
       <div class="nav-item" data-page="inquiries"><span class="icon">💬</span><span class="nav-label">1:1 문의하기</span></div>
-      <div class="nav-section-label">브랜드 추가</div>
+      <div class="nav-section-label">담당 브랜드 관리</div>
+      <div class="nav-item" data-page="brand-list"><span class="icon">📋</span><span class="nav-label">담당 브랜드 목록</span></div>
       <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span><span class="nav-label">새 브랜드 담당 추가</span></div>
     `;
 
-    // 브랜드 스위처 버튼 이벤트
-    nav.querySelectorAll('.brand-switch-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        setActiveBrand(btn.dataset.id);
+    // ── 브랜드 스위처 팝업 ──
+    let existingPopup = document.getElementById('brand-switcher-popup');
+    if (existingPopup) existingPopup.remove();
+
+    const otherIds = brandIds.filter(id => id !== activeBrandId);
+    const popup = document.createElement('div');
+    popup.id = 'brand-switcher-popup';
+    popup.className = 'brand-switcher-popup';
+    popup.innerHTML = `
+      <div class="bsp-section-label">현재 브랜드</div>
+      <div class="bsp-item bsp-item-active">
+        ${_brandAvatarHtml(current.photoUrl, current.name, 'bsp-avatar')}
+        <span class="bsp-name">${current.name}</span>
+        <span class="bsp-check">✓</span>
+      </div>
+      ${otherIds.length > 0 ? `
+        <div class="bsp-section-label">다른 브랜드</div>
+        ${otherIds.map(id => `
+          <div class="bsp-item bsp-switch-item" data-id="${id}">
+            ${_brandAvatarHtml(dataMap[id].photoUrl, dataMap[id].name, 'bsp-avatar')}
+            <span class="bsp-name">${dataMap[id].name}</span>
+          </div>`).join('')}
+      ` : ''}
+      <div class="bsp-divider"></div>
+      <button class="bsp-action" id="bsp-btn-add">+ 새 브랜드 담당 추가</button>
+      <button class="bsp-action" id="bsp-btn-list">담당 브랜드 전체 보기</button>
+    `;
+    document.body.appendChild(popup);
+
+    const headerBtn = document.getElementById('brand-header-btn');
+    const chevron   = document.getElementById('brand-chevron');
+
+    function openPopup() {
+      const rect = headerBtn.getBoundingClientRect();
+      popup.style.top  = (rect.bottom + 6) + 'px';
+      popup.style.left = rect.left + 'px';
+      popup.style.width = Math.max(rect.width, 220) + 'px';
+      popup.classList.add('open');
+      chevron.textContent = '▴';
+    }
+    function closePopup() {
+      popup.classList.remove('open');
+      chevron.textContent = '▾';
+    }
+
+    headerBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      popup.classList.contains('open') ? closePopup() : openPopup();
+    });
+
+    document.addEventListener('click', function onOutside(e) {
+      if (!popup.contains(e.target) && e.target !== headerBtn) {
+        closePopup();
+        document.removeEventListener('click', onOutside);
+      }
+    });
+
+    popup.querySelectorAll('.bsp-switch-item').forEach(el => {
+      el.addEventListener('click', () => {
+        setActiveBrand(el.dataset.id);
+        closePopup();
         renderSidebar(STATUS.BRAND);
         renderPage('dashboard');
       });
     });
+
+    document.getElementById('bsp-btn-add').addEventListener('click', () => {
+      closePopup(); renderPage('member-onboarding');
+    });
+    document.getElementById('bsp-btn-list').addEventListener('click', () => {
+      closePopup(); renderPage('brand-list');
+    });
+
   } else {
     nav.innerHTML = `
-      <div class="nav-section-label">브랜드 관리</div>
       <div class="nav-item" data-page="brand-list"><span class="icon">🏷️</span><span class="nav-label">담당 브랜드 목록</span></div>
       <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span><span class="nav-label">새 브랜드 담당 합류/등록</span></div>
       <div class="nav-section-label">안내</div>
@@ -1164,6 +1225,91 @@ async function renderMemberOnboardingPage(container) {
 async function renderBrandListPage(container) {
   container.innerHTML = '<div class="card"><div class="spinner" style="margin:40px auto"></div></div>';
   const uid = currentUser.uid;
+  const isBrandMember = currentUserDoc?.member_status === STATUS.BRAND;
+
+  // 브랜드 회원: 실제 담당 브랜드 목록 표시
+  if (isBrandMember) {
+    try {
+      const brandIds = getUserBrandIds(currentUserDoc);
+      const brands = await Promise.all(brandIds.map(id => getBrandData(id).then(d => ({ id, ...d }))));
+
+      let filtered = brands;
+
+      function renderTable(list) {
+        if (list.length === 0) {
+          return `<div style="text-align:center;padding:40px;color:var(--gray-400)">검색 결과가 없습니다.</div>`;
+        }
+        return `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:48px"></th>
+                <th>브랜드명</th>
+                <th style="width:100px;text-align:center">상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(b => `
+                <tr class="brand-list-row" data-id="${b.id}" style="cursor:pointer">
+                  <td>
+                    ${b.photoUrl
+                      ? `<img src="${b.photoUrl}" alt="${b.name}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
+                      : `<div style="width:36px;height:36px;border-radius:50%;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">${(b.name||'?')[0].toUpperCase()}</div>`}
+                  </td>
+                  <td>
+                    <span style="font-weight:600">${b.name}</span>
+                    ${b.id === activeBrandId ? `<span class="badge badge-green" style="margin-left:8px;font-size:11px">현재</span>` : ''}
+                  </td>
+                  <td style="text-align:center">
+                    <span class="badge badge-green">활성</span>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`;
+      }
+
+      container.innerHTML = `
+        <div style="max-width:800px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+            <div>
+              <h2 style="font-size:18px;font-weight:700">담당 브랜드 목록</h2>
+              <p style="font-size:13px;color:var(--gray-600);margin-top:4px">담당하고 있는 브랜드를 확인하고 전환하세요.</p>
+            </div>
+            <button class="btn btn-primary" id="btn-add-brand" style="width:auto;padding:10px 16px">+ 새 브랜드 담당 추가</button>
+          </div>
+          <div class="card" style="margin-bottom:16px;padding:12px 16px">
+            <input id="brand-search" class="form-input" type="text" placeholder="브랜드명 검색" style="margin:0;max-width:300px">
+          </div>
+          <div class="card" id="brand-table-wrap">${renderTable(brands)}</div>
+        </div>`;
+
+      document.getElementById('btn-add-brand').addEventListener('click', () => renderPage('member-onboarding'));
+
+      document.getElementById('brand-search').addEventListener('input', e => {
+        const q = e.target.value.toLowerCase();
+        filtered = brands.filter(b => b.name.toLowerCase().includes(q));
+        document.getElementById('brand-table-wrap').innerHTML = renderTable(filtered);
+        bindRows();
+      });
+
+      function bindRows() {
+        container.querySelectorAll('.brand-list-row').forEach(row => {
+          row.addEventListener('click', () => {
+            setActiveBrand(row.dataset.id);
+            renderSidebar(STATUS.BRAND);
+            renderPage('dashboard');
+          });
+        });
+      }
+      bindRows();
+
+    } catch (e) {
+      container.innerHTML = '<div class="card" style="color:var(--danger);padding:24px">데이터를 불러오지 못했습니다.</div>';
+    }
+    return;
+  }
+
+  // 일반 회원: 신청 현황 표시
   try {
     const [appsSnap, joinSnap] = await Promise.all([
       getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
