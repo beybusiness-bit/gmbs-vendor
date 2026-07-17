@@ -86,13 +86,16 @@ function contractCard(c) {
           ${meta.msg}
           ${s === '체결완료' && c.completed_at ? ` (${fmt(c.completed_at)})` : ''}
         </div>` : ''}
-      ${c.signed_pdf_url ? `
+      ${s === '체결완료' ? `
         <div style="margin-top:12px">
-          <a href="${c.signed_pdf_url}" target="_blank" rel="noopener"
-            class="btn btn-outline"
-            style="width:auto;padding:8px 16px;font-size:13px;display:inline-flex;align-items:center;gap:6px;text-decoration:none">
-            📄 계약서 다운로드
-          </a>
+          ${c.signed_pdf_url
+            ? `<a href="${c.signed_pdf_url}" target="_blank" rel="noopener"
+                class="btn btn-outline"
+                style="width:auto;padding:8px 16px;font-size:13px;display:inline-flex;align-items:center;gap:6px;text-decoration:none">
+                📄 계약서 PDF 다운로드
+               </a>`
+            : `<p style="font-size:13px;color:var(--gray-500)">📧 계약서는 이메일로 발송되었습니다.</p>`
+          }
         </div>` : ''}
     </div>`;
 }

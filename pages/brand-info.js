@@ -162,15 +162,27 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
         <div class="info-grid">
           ${settlementHtml}
         </div>
-        ${si.id_card_url || si.bank_book_url || si.biz_reg_url ? `
-          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--gray-100)">
-            <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px">서류</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px">
-              ${si.id_card_url ? `<a href="${si.id_card_url}" target="_blank" class="btn btn-outline" style="width:auto;padding:7px 14px;font-size:13px">신분증 사본</a>` : ''}
-              ${si.bank_book_url ? `<a href="${si.bank_book_url}" target="_blank" class="btn btn-outline" style="width:auto;padding:7px 14px;font-size:13px">통장 사본</a>` : ''}
-              ${si.biz_reg_url ? `<a href="${si.biz_reg_url}" target="_blank" class="btn btn-outline" style="width:auto;padding:7px 14px;font-size:13px">사업자등록증</a>` : ''}
-            </div>
-          </div>` : ''}
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--gray-100)">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:10px">서류</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${[
+              { key: 'id_card_url',   label: '신분증 사본' },
+              { key: 'bank_book_url', label: '통장 사본' },
+              { key: 'biz_reg_url',   label: '사업자등록증' },
+            ].map(({ key, label }) => si[key]
+              ? `<div style="display:flex;align-items:center;gap:10px">
+                   <span style="font-size:13px;color:var(--gray-700);min-width:80px">${label}</span>
+                   <span style="font-size:12px;color:var(--success);font-weight:600">✅ 등록완료 (자동저장)</span>
+                   <a href="${si[key]}" target="_blank" rel="noopener"
+                     style="font-size:12px;color:var(--primary);text-decoration:underline;margin-left:4px">열기</a>
+                 </div>`
+              : `<div style="display:flex;align-items:center;gap:10px">
+                   <span style="font-size:13px;color:var(--gray-700);min-width:80px">${label}</span>
+                   <span style="font-size:12px;color:var(--gray-400)">미등록</span>
+                 </div>`
+            ).join('')}
+          </div>
+        </div>
       </div>` : `
       <div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
