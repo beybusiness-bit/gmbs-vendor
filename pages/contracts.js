@@ -10,7 +10,7 @@ const STATUS_META = {
   '발송대기':   { badge: 'badge-gray',   icon: '⏳', label: '발송 대기',   msg: '아직 계약서가 발송되지 않았습니다.' },
   '발송됨':     { badge: 'badge-blue',   icon: '📨', label: '발송됨',      msg: '계약서가 발송되었습니다. 카카오톡 또는 이메일로 온 서명 요청을 확인해 주세요.' },
   '서명진행중': { badge: 'badge-yellow', icon: '✍️', label: '서명 진행 중', msg: '서명이 진행 중입니다.' },
-  '체결완료':   { badge: 'badge-green',  icon: '✅', label: '체결 완료',   msg: '계약이 체결되었습니다. 완료된 계약서는 담당자 이메일로 발송됩니다.' },
+  '체결완료':   { badge: 'badge-green',  icon: '✅', label: '체결 완료',   msg: '계약이 체결되었습니다. 완료된 계약서는 담당자 이메일로 발송되며, 관리자 검토 후 최종 입점이 확정됩니다.' },
   '취소됨':     { badge: 'badge-red',    icon: '❌', label: '취소됨',      msg: '계약 요청이 취소되었습니다. 관리자에게 문의해 주세요.' },
 };
 
@@ -85,6 +85,14 @@ function contractCard(c) {
         <div style="padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.6;${alertStyle}">
           ${meta.msg}
           ${s === '체결완료' && c.completed_at ? ` (${fmt(c.completed_at)})` : ''}
+        </div>` : ''}
+      ${c.signed_pdf_url ? `
+        <div style="margin-top:12px">
+          <a href="${c.signed_pdf_url}" target="_blank" rel="noopener"
+            class="btn btn-outline"
+            style="width:auto;padding:8px 16px;font-size:13px;display:inline-flex;align-items:center;gap:6px;text-decoration:none">
+            📄 계약서 다운로드
+          </a>
         </div>` : ''}
     </div>`;
 }

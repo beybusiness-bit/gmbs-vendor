@@ -848,15 +848,6 @@ async function openApplyModal() {
       <input id="app-brand-name" class="form-input" type="text" placeholder="브랜드 이름을 입력하세요">
     </div>
     <div class="form-group">
-      <label class="form-label">거래유형 <span style="color:var(--danger)">*</span></label>
-      <select id="app-brand-type" class="form-input form-select">
-        <option value="">선택하세요</option>
-        <option value="PB">PB</option>
-        <option value="위탁">위탁</option>
-        <option value="매입">매입</option>
-      </select>
-    </div>
-    <div class="form-group">
       <label class="form-label">브랜드 대표 사진 <span style="color:var(--gray-400);font-weight:400">(정사각형 500×500px 권장, JPG/PNG)</span></label>
       <input id="app-brand-photo" type="file" accept="image/jpeg,image/png"
         style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer">
@@ -891,15 +882,8 @@ async function openApplyModal() {
       ${roleSelectHTML('app-role')}
     </div>
 
-    <div id="settlement-section" style="display:none">
+    <div id="settlement-section">
       <div style="${sectionStyle}">정산 정보</div>
-
-      <div id="commission-row" style="display:none">
-        <div class="form-group">
-          <label class="form-label">위탁판매대행수수료 (%)</label>
-          <input id="app-commission-rate" class="form-input" type="number" min="0" max="100" step="0.1" value="15" placeholder="15">
-        </div>
-      </div>
 
       <div class="form-group">
         <label class="form-label">사업자 여부 <span style="color:var(--danger)">*</span></label>
@@ -974,7 +958,7 @@ async function openApplyModal() {
     row.className = 'app-url-row';
     row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px';
     row.innerHTML = `
-      <input class="form-input app-url-input" type="url" placeholder="https://instagram.com/계정명" value="${value}" style="flex:1">
+      <input class="form-input app-url-input" type="url" placeholder="홈페이지, SNS 주소 등 (https://...)" value="${value}" style="flex:1">
       <button type="button" class="app-url-remove" style="padding:0 12px;background:none;border:1.5px solid var(--gray-200);border-radius:8px;font-size:16px;color:var(--gray-400);cursor:pointer">✕</button>
     `;
     row.querySelector('.app-url-remove').addEventListener('click', () => {
@@ -999,14 +983,6 @@ async function openApplyModal() {
       $('app-photo-preview').style.display = 'block';
     };
     reader.readAsDataURL(file);
-  });
-
-  // 거래유형 변경 → 정산 섹션 표시/숨김
-  $('app-brand-type').addEventListener('change', () => {
-    const type = $('app-brand-type').value;
-    const showSettlement = type === '위탁' || type === '매입';
-    $('settlement-section').style.display = showSettlement ? 'block' : 'none';
-    $('commission-row').style.display = type === '위탁' ? 'block' : 'none';
   });
 
   // 사업자 여부 변경 → 사업자/개인 필드 토글
@@ -1081,32 +1057,27 @@ async function openApplyModal() {
 
   $('btn-app-submit').addEventListener('click', async () => {
     const brandName    = $('app-brand-name').value.trim();
-    const brandType    = $('app-brand-type').value;
     const phone        = $('app-phone').value.trim();
     const contactEmail = $('app-contact-email').value.trim();
     const role         = $('app-role').value;
     const errEl        = $('app-error');
 
-    if (!brandName)  { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
-    if (!brandType)  { errEl.textContent = '거래유형을 선택해 주세요.'; return; }
-    if (!phone)      { errEl.textContent = '연락처를 입력해 주세요.'; return; }
+    if (!brandName)    { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
+    if (!phone)        { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail) { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
-    if (!role)       { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
+    if (!role)         { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
 
-    const needSettlement = brandType === '위탁' || brandType === '매입';
-    if (needSettlement) {
-      const bizType = document.querySelector('input[name="app-biz-type"]:checked')?.value;
-      if (!bizType) { errEl.textContent = '사업자 여부를 선택해 주세요.'; return; }
-      if (!$('app-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
-      if (!$('app-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
-      if (!$('app-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
-      const validationErrors = validateSettlementForm({
-        bizType,
-        bizNumber:      $('app-biz-reg-number')?.value || '',
-        residentNumber: $('app-resident-number')?.value || '',
-      });
-      if (validationErrors.length) { errEl.textContent = validationErrors[0]; return; }
-    }
+    const bizType = document.querySelector('input[name="app-biz-type"]:checked')?.value;
+    if (!bizType) { errEl.textContent = '사업자 여부를 선택해 주세요.'; return; }
+    if (!$('app-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
+    if (!$('app-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
+    if (!$('app-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
+    const validationErrors = validateSettlementForm({
+      bizType,
+      bizNumber:      $('app-biz-reg-number')?.value || '',
+      residentNumber: $('app-resident-number')?.value || '',
+    });
+    if (validationErrors.length) { errEl.textContent = validationErrors[0]; return; }
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
@@ -1128,35 +1099,27 @@ async function openApplyModal() {
         .map(el => el.value.trim()).filter(Boolean);
 
       // 정산 정보 구성
-      let settlementInfo = null;
-      if (needSettlement) {
-        const bizType = document.querySelector('input[name="app-biz-type"]:checked').value;
-        const isBiz = bizType === 'business';
-        const accountNumberRaw = $('app-account-number').value.trim();
-        const residentNumberRaw = !isBiz ? ($('app-resident-number').value.trim()) : '';
+      const isBiz = bizType === 'business';
+      const accountNumberRaw = $('app-account-number').value.trim();
+      const residentNumberRaw = !isBiz ? ($('app-resident-number').value.trim()) : '';
 
-        const [accountNumberEnc, residentNumberEnc] = await Promise.all([
-          encryptValue(accountNumberRaw),
-          encryptValue(residentNumberRaw),
-        ]);
+      const [accountNumberEnc, residentNumberEnc] = await Promise.all([
+        encryptValue(accountNumberRaw),
+        encryptValue(residentNumberRaw),
+      ]);
 
-        settlementInfo = {
-          business_type:      bizType,
-          bank_name:          $('app-bank-name').value.trim(),
-          account_holder:     $('app-account-holder').value.trim(),
-          account_number:     accountNumberEnc,
-          ...(isBiz ? {
-            business_reg_number: $('app-biz-reg-number').value.trim(),
-            taxation_type:       $('app-taxation-type').value,
-          } : {
-            resident_number: residentNumberEnc,
-          }),
-        };
-      }
-
-      const commissionRate = brandType === '위탁'
-        ? parseFloat($('app-commission-rate').value) || 15
-        : null;
+      const settlementInfo = {
+        business_type:  bizType,
+        bank_name:      $('app-bank-name').value.trim(),
+        account_holder: $('app-account-holder').value.trim(),
+        account_number: accountNumberEnc,
+        ...(isBiz ? {
+          business_reg_number: $('app-biz-reg-number').value.trim(),
+          taxation_type:       $('app-taxation-type').value,
+        } : {
+          resident_number: residentNumberEnc,
+        }),
+      };
 
       await addDoc(collection(db, 'brand_applications'), {
         applicant_uid:           currentUser.uid,
@@ -1166,12 +1129,10 @@ async function openApplyModal() {
         applicant_contact_email: contactEmail,
         applicant_role:          role,
         brand_name:              brandName,
-        brand_type:              brandType,
         brand_description:       $('app-brand-desc').value.trim(),
         website_urls:            websiteUrls,
         brand_photo_url:         photoUrl,
-        ...(settlementInfo ? { settlement_info: settlementInfo } : {}),
-        ...(commissionRate !== null ? { requested_commission_rate: commissionRate } : {}),
+        settlement_info:         settlementInfo,
         status:                  STATUS.SUBMITTED,
         submitted_at:            serverTimestamp(),
       });
