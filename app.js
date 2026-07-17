@@ -287,6 +287,7 @@ onAuthStateChanged(auth, async (user) => {
       });
       await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
       currentUserDoc = (await getDoc(userRef)).data();
+      await syncPersonDoc(user, currentUserDoc);
       renderApp(STATUS.BRAND, true);
     } else {
       await setDoc(userRef, {
@@ -300,6 +301,7 @@ onAuthStateChanged(auth, async (user) => {
         updated_at:    serverTimestamp(),
       });
       currentUserDoc = (await getDoc(userRef)).data();
+      await syncPersonDoc(user, currentUserDoc);
       renderApp(STATUS.GENERAL);
     }
   } else {
@@ -329,9 +331,77 @@ onAuthStateChanged(auth, async (user) => {
       }
     } catch (_) { /* 초대 확인 실패는 무시 */ }
 
+    // 브랜드 담당자인데 brand_id가 null이거나 브랜드가 삭제된 경우 안내 화면 표시
+    if (currentUserDoc.member_status === STATUS.BRAND) {
+      const brandId = currentUserDoc.brand_id;
+      if (!brandId) {
+        showNoBrandState();
+        return;
+      }
+      const brandSnap = await getDoc(doc(db, 'brands', brandId)).catch(() => null);
+      if (!brandSnap || !brandSnap.exists()) {
+        await updateDoc(userRef, { brand_id: null, updated_at: serverTimestamp() }).catch(() => {});
+        currentUserDoc = { ...currentUserDoc, brand_id: null };
+        showNoBrandState();
+        return;
+      }
+    }
+
+    await syncPersonDoc(user, currentUserDoc);
     renderApp(currentUserDoc.member_status || STATUS.GENERAL);
   }
 });
+
+// ── 브랜드 없음 상태 표시 ──
+function showNoBrandState() {
+  showApp();
+  document.getElementById('sidebar').style.display = 'none';
+  document.getElementById('main-wrap').style.marginLeft = '0';
+  $('main-content').innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center;padding:40px">
+      <div style="font-size:48px;margin-bottom:20px">🏢</div>
+      <h2 style="font-size:20px;font-weight:700;margin-bottom:12px">현재 연결된 브랜드가 없습니다.</h2>
+      <p style="font-size:14px;color:var(--gray-500);line-height:1.7;margin-bottom:32px">
+        담당자 재등록이 필요하면 GMBS에 문의해 주세요.
+      </p>
+      <button class="btn btn-outline" id="btn-no-brand-signout" style="width:auto;padding:12px 28px">로그아웃</button>
+    </div>
+  `;
+  document.getElementById('btn-no-brand-signout').addEventListener('click', () => signOut(auth));
+}
+
+// ── persons 최상위 컬렉션 동기화 ──
+async function syncPersonDoc(user, userData) {
+  try {
+    const personId = userData.person_id;
+    if (personId) {
+      await updateDoc(doc(db, 'persons', personId), {
+        name:               user.displayName || userData.name || '',
+        login_google_email: user.email,
+        updated_at:         serverTimestamp(),
+      }).catch(() => {});
+    } else {
+      const personRef = await addDoc(collection(db, 'persons'), {
+        brand_id:           userData.brand_id || null,
+        name:               user.displayName || '',
+        login_google_email: user.email,
+        contact_email:      user.email,
+        role:               '',
+        active:             true,
+        created_at:         serverTimestamp(),
+        updated_at:         serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'users', user.uid), {
+        person_id:  personRef.id,
+        updated_at: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'vendor_accounts', user.email.toLowerCase()), {
+        person_id: personRef.id,
+      }).catch(() => {});
+      currentUserDoc = { ...currentUserDoc, person_id: personRef.id };
+    }
+  } catch (_) { /* persons 동기화 실패는 무시 */ }
+}
 
 // ── 앱 렌더링 ──
 function renderApp(memberStatus, isNewLink = false) {
@@ -372,10 +442,15 @@ async function getBrandName(brandId) {
   return (await getBrandData(brandId)).name;
 }
 
+const MEMBER_STATUS_LABEL = {
+  [STATUS.BRAND]:   '브랜드 담당자',
+  [STATUS.GENERAL]: '담당 브랜드 없음',
+};
+
 // ── 사이드바 ──
 async function updateSidebarUser(memberStatus) {
   $('user-name-text').textContent = currentUser.displayName || currentUser.email;
-  $('user-role-text').textContent = memberStatus;
+  $('user-role-text').textContent = MEMBER_STATUS_LABEL[memberStatus] || memberStatus;
 
   const avatarEl = $('user-avatar');
   if (currentUser.photoURL) {
