@@ -37,8 +37,10 @@ service cloud.firestore {
         && request.auth.token.email.lower() == email
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['uid', 'status', 'linked_at', 'name', 'updated_at']);
-      // 브랜드 담당자가 다른 담당자를 초대할 때 신규 생성 허용
-      allow create: if request.auth != null && isLinkedVendor();
+      // 본인 이메일 문서 생성(레거시 마이그레이션·초대 수락) 또는
+      // 이미 연결된 담당자가 타인 초대 시 생성
+      allow create: if request.auth != null
+        && (request.auth.token.email.lower() == email || isLinkedVendor());
     }
 
     // ── vendor_accounts 컬렉션 (레거시 — 마이그레이션 기간 한시 지원) ──
