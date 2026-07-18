@@ -73,8 +73,9 @@ async function getNtsApiKey() {
 export async function verifyBizNumber(bizNumber) {
   const apiKey = await getNtsApiKey();
   if (!apiKey) throw new Error('API 키가 설정되지 않았습니다. 운영자에게 문의하세요.');
+  // 공공데이터포털 인코딩키는 이미 URL 인코딩된 값이므로 추가 인코딩 없이 그대로 사용
   const res = await fetch(
-    'https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey=' + encodeURIComponent(apiKey),
+    'https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey=' + apiKey,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
