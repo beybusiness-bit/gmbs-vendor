@@ -66,12 +66,20 @@ service cloud.firestore {
 
     // ── brand_join_requests 컬렉션 ──
     match /brand_join_requests/{docId} {
+      // 신청자 본인 또는 해당 브랜드 담당자 읽기 가능
       allow read: if request.auth != null
-        && resource.data.applicant_uid == request.auth.uid;
+        && (resource.data.applicant_uid == request.auth.uid
+            || isBrandMember(resource.data.target_brand_id));
       allow create: if request.auth != null
         && request.resource.data.applicant_uid == request.auth.uid
         && request.resource.data.status == '제출됨';
-      allow update: if false;
+      // 브랜드 주관리자가 승인/거절 처리 (상태·처리자 정보만 변경 허용)
+      allow update: if request.auth != null
+        && isBrandMember(resource.data.target_brand_id)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'approved_by', 'approved_by_email', 'approved_by_type',
+                       'approved_at', 'rejected_by', 'rejected_by_email', 'rejected_by_type',
+                       'rejected_at', 'rejection_reason', 'updated_at']);
       allow delete: if request.auth != null
         && resource.data.applicant_uid == request.auth.uid;
     }

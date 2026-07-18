@@ -12,8 +12,17 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
 
   container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
 
-  const snap = await getDocs(collection(db, 'brands', brandId, 'managers'));
-  const managers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const [subSnap, joinSnap] = await Promise.all([
+    getDocs(collection(db, 'brands', brandId, 'managers')),
+    getDocs(query(
+      collection(db, 'brand_join_requests'),
+      where('target_brand_id', '==', brandId),
+      where('status', '==', '제출됨'),
+    )).catch(() => null),
+  ]);
+
+  const managers = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const pendingJoins = joinSnap ? joinSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
   const myEmail = (user.email || '').toLowerCase().trim();
 
   // 현재 로그인 계정이 managers 서브컬렉션에 없으면 자동 추가
@@ -40,6 +49,10 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
   const myRecord = managers.find(m => (m.login_google_email || '').toLowerCase() === myEmail);
   const isMain = myRecord?.role === '주관리자';
 
+  function rerender() {
+    renderManagers({ userDoc, user, container, showModal, closeModal });
+  }
+
   container.innerHTML = `
     <div style="max-width:720px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -61,6 +74,19 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
            </div>`
         : managers.map(m => managerCard(m, myEmail, isMain)).join('')
       }
+
+      ${pendingJoins.length > 0 ? `
+        <div style="margin-top:32px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+            <h3 style="font-size:16px;font-weight:700;margin:0">합류 신청 대기</h3>
+            <span style="background:#f59e0b;color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px">${pendingJoins.length}</span>
+          </div>
+          ${!isMain ? `
+            <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;margin-bottom:12px">
+              합류 신청 승인은 주관리자만 처리할 수 있습니다.
+            </div>` : ''}
+          ${pendingJoins.map(j => joinRequestCard(j, isMain)).join('')}
+        </div>` : ''}
     </div>
   `;
 
@@ -83,13 +109,29 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
       openDeleteConfirm({ brandId, manager, showModal, closeModal, container, userDoc, user });
     });
   });
+
+  if (isMain) {
+    container.querySelectorAll('.btn-approve-join').forEach(btn => {
+      const id = btn.dataset.id;
+      const joinReq = pendingJoins.find(j => j.id === id);
+      btn.addEventListener('click', () => {
+        openApproveConfirm({ brandId, joinReq, managers, user, showModal, closeModal, rerender });
+      });
+    });
+
+    container.querySelectorAll('.btn-reject-join').forEach(btn => {
+      const id = btn.dataset.id;
+      const joinReq = pendingJoins.find(j => j.id === id);
+      btn.addEventListener('click', () => {
+        openRejectConfirm({ joinReq, user, showModal, closeModal, rerender });
+      });
+    });
+  }
 }
 
 function managerCard(m, myEmail, isMain) {
   const isMe = (m.login_google_email || '').toLowerCase() === myEmail;
-  // 수정: 주관리자는 모두 수정 가능, 부관리자는 자신만 수정 가능
   const canEdit = isMain || isMe;
-  // 삭제: 주관리자만 가능, 본인은 삭제 불가
   const canDelete = isMain && !isMe;
   return `
     <div class="card" style="margin-bottom:12px">
@@ -120,6 +162,206 @@ function managerCard(m, myEmail, isMain) {
     </div>`;
 }
 
+function joinRequestCard(j, isMain) {
+  const fmt = ts => {
+    if (!ts) return '';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+  };
+  return `
+    <div class="card" style="margin-bottom:10px;border-left:3px solid #f59e0b">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-size:15px;font-weight:700">${j.applicant_name || '-'}</span>
+            ${j.applicant_role ? `<span style="background:#f59e0b20;color:#92400e;padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600">${j.applicant_role} 신청</span>` : ''}
+          </div>
+          <div style="font-size:13px;color:var(--gray-600);display:grid;gap:2px">
+            ${j.applicant_phone ? `<span>📞 ${j.applicant_phone}</span>` : ''}
+            ${j.applicant_contact_email ? `<span>✉️ ${j.applicant_contact_email}</span>` : ''}
+            ${j.applicant_email ? `<span style="color:var(--gray-400);font-size:12px">🔑 ${j.applicant_email}</span>` : ''}
+            ${j.submitted_at ? `<span style="color:var(--gray-400);font-size:12px">신청일: ${fmt(j.submitted_at)}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;margin-left:12px">
+          ${isMain
+            ? `<button class="btn-approve-join" data-id="${j.id}"
+                style="width:auto;padding:6px 14px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">승인</button>
+               <button class="btn-reject-join" data-id="${j.id}"
+                style="width:auto;padding:6px 14px;font-size:13px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;cursor:pointer">거절</button>`
+            : `<span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600">대기 중</span>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+function openApproveConfirm({ brandId, joinReq, managers, user, showModal, closeModal, rerender }) {
+  const brandHasMain = managers.some(m => m.role === '주관리자' && m.active !== false);
+  const requestedRole = joinReq.applicant_role || '부관리자';
+  const willBeMain = requestedRole === '주관리자';
+  const roleConflict = willBeMain && brandHasMain;
+
+  showModal(`
+    <div class="modal-title">합류 신청 승인</div>
+    <p style="margin-bottom:16px;color:var(--gray-700);font-size:14px;line-height:1.6">
+      <strong>${joinReq.applicant_name || joinReq.applicant_email}</strong>님의
+      <strong>${requestedRole}</strong> 합류 신청을 승인하시겠습니까?
+    </p>
+    ${roleConflict ? `
+      <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#b91c1c">
+        ⚠️ 이미 주관리자가 있습니다. 역할을 <strong>부관리자</strong>로 변경하여 승인합니다.
+      </div>` : ''}
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">부여할 역할</label>
+      <select id="approve-role" class="form-input form-select">
+        ${['주관리자', '부관리자'].map(r =>
+          `<option value="${r}"${(roleConflict ? '부관리자' : requestedRole) === r ? ' selected' : ''}>${r}</option>`
+        ).join('')}
+      </select>
+    </div>
+    <div id="approve-error" class="form-error"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-outline" id="btn-approve-cancel" style="flex:1">취소</button>
+      <button class="btn btn-primary" id="btn-approve-confirm" style="flex:2">승인하기</button>
+    </div>
+  `);
+
+  document.getElementById('btn-approve-cancel').addEventListener('click', closeModal);
+  document.getElementById('btn-approve-confirm').addEventListener('click', async () => {
+    const errEl  = document.getElementById('approve-error');
+    const btn    = document.getElementById('btn-approve-confirm');
+    const role   = document.getElementById('approve-role').value;
+    errEl.textContent = '';
+
+    if (role === '주관리자' && brandHasMain) {
+      errEl.textContent = '이미 주관리자가 있습니다. 부관리자로 변경하세요.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '처리 중...';
+
+    try {
+      const loginEmail = (joinReq.applicant_email || '').toLowerCase().trim();
+      const approverName  = user.displayName || user.email || '';
+      const approverEmail = (user.email || '').toLowerCase();
+      const now = serverTimestamp();
+
+      // 1. brand_join_requests 업데이트
+      await updateDoc(doc(db, 'brand_join_requests', joinReq.id), {
+        status:            '승인',
+        approved_by:       approverName,
+        approved_by_email: approverEmail,
+        approved_by_type:  'vendor',
+        approved_at:       now,
+        updated_at:        now,
+      });
+
+      // 2. brands/{brandId}/managers 서브컬렉션에 추가
+      const subData = {
+        name:               joinReq.applicant_name || '',
+        role,
+        phone:              joinReq.applicant_phone || '',
+        contact_email:      joinReq.applicant_contact_email || loginEmail,
+        login_google_email: loginEmail,
+        active:             true,
+        join_request_id:    joinReq.id,
+        created_at:         now,
+        updated_at:         now,
+      };
+      await addDoc(collection(db, 'brands', brandId, 'managers'), subData);
+
+      // 3. managers/{email} 최상위 문서 생성 또는 업데이트
+      if (loginEmail) {
+        const mgrRef  = doc(db, 'managers', loginEmail);
+        const mgrSnap = await getDoc(mgrRef);
+        if (mgrSnap.exists()) {
+          const existing = mgrSnap.data();
+          const updatedBrandIds = [...new Set([...(existing.brand_ids || []), brandId])];
+          await updateDoc(mgrRef, {
+            brand_ids:  updatedBrandIds,
+            roles:      { ...(existing.roles || {}), [brandId]: role },
+            status:     existing.status === '비활성' ? '초대됨' : existing.status,
+            updated_at: now,
+          });
+        } else {
+          await setDoc(mgrRef, {
+            uid:                null,
+            name:               joinReq.applicant_name || '',
+            phone:              joinReq.applicant_phone || '',
+            contact_email:      joinReq.applicant_contact_email || loginEmail,
+            login_google_email: loginEmail,
+            brand_ids:          [brandId],
+            roles:              { [brandId]: role },
+            status:             '초대됨',
+            active:             true,
+            created_at:         now,
+            updated_at:         now,
+            linked_at:          null,
+          });
+        }
+      }
+
+      closeModal();
+      await rerender();
+    } catch (e) {
+      errEl.textContent = '처리 중 오류가 발생했습니다.';
+      btn.disabled = false;
+      btn.textContent = '승인하기';
+    }
+  });
+}
+
+function openRejectConfirm({ joinReq, user, showModal, closeModal, rerender }) {
+  showModal(`
+    <div class="modal-title">합류 신청 거절</div>
+    <p style="margin-bottom:14px;color:var(--gray-700);font-size:14px;line-height:1.6">
+      <strong>${joinReq.applicant_name || joinReq.applicant_email}</strong>님의 합류 신청을 거절하시겠습니까?
+    </p>
+    <div class="form-group">
+      <label class="form-label">거절 사유 <span style="color:var(--gray-400);font-weight:400">(선택)</span></label>
+      <textarea id="reject-reason" class="form-input" rows="3" placeholder="신청자에게 전달할 거절 사유를 입력하세요" style="resize:vertical"></textarea>
+    </div>
+    <div id="reject-error" class="form-error"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-outline" id="btn-reject-cancel" style="flex:1">취소</button>
+      <button class="btn" id="btn-reject-confirm"
+        style="flex:2;background:var(--danger);color:#fff;border:none;border-radius:10px;height:48px;font-weight:700;cursor:pointer">
+        거절하기
+      </button>
+    </div>
+  `);
+
+  document.getElementById('btn-reject-cancel').addEventListener('click', closeModal);
+  document.getElementById('btn-reject-confirm').addEventListener('click', async () => {
+    const errEl  = document.getElementById('reject-error');
+    const btn    = document.getElementById('btn-reject-confirm');
+    const reason = document.getElementById('reject-reason').value.trim();
+    btn.disabled = true;
+    btn.textContent = '처리 중...';
+
+    try {
+      const now = serverTimestamp();
+      await updateDoc(doc(db, 'brand_join_requests', joinReq.id), {
+        status:             '거절',
+        rejection_reason:   reason || '',
+        rejected_by:        user.displayName || user.email || '',
+        rejected_by_email:  (user.email || '').toLowerCase(),
+        rejected_by_type:   'vendor',
+        rejected_at:        now,
+        updated_at:         now,
+      });
+
+      closeModal();
+      await rerender();
+    } catch (e) {
+      errEl.textContent = '처리 중 오류가 발생했습니다.';
+      btn.disabled = false;
+      btn.textContent = '거절하기';
+    }
+  });
+}
+
 function openDeleteConfirm({ brandId, manager, showModal, closeModal, container, userDoc, user }) {
   showModal(`
     <div class="modal-title">담당자 삭제</div>
@@ -146,10 +388,8 @@ function openDeleteConfirm({ brandId, manager, showModal, closeModal, container,
     btn.disabled = true;
     btn.textContent = '삭제 중...';
     try {
-      // 브랜드 서브컬렉션에서 삭제
       await deleteDoc(doc(db, 'brands', brandId, 'managers', manager.id));
 
-      // managers 최상위 문서에서 해당 brandId 제거
       const loginEmail = (manager.login_google_email || '').toLowerCase().trim();
       if (loginEmail) {
         const mgrRef = doc(db, 'managers', loginEmail);
@@ -164,9 +404,7 @@ function openDeleteConfirm({ brandId, manager, showModal, closeModal, container,
             roles:      updatedRoles,
             updated_at: serverTimestamp(),
           };
-          if (updatedBrandIds.length === 0) {
-            updates.status = '비활성';
-          }
+          if (updatedBrandIds.length === 0) updates.status = '비활성';
           await updateDoc(mgrRef, updates).catch(() => {});
         }
       }
@@ -290,7 +528,6 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
       if (isEdit) {
         await updateDoc(doc(db, 'brands', brandId, 'managers', manager.id), subData);
 
-        // managers 최상위 문서의 roles 업데이트
         const mgEmail = (manager.login_google_email || '').toLowerCase().trim();
         if (mgEmail) {
           const mgrRef = doc(db, 'managers', mgEmail);
@@ -308,10 +545,8 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
         subData.active = true;
         subData.created_at = serverTimestamp();
 
-        // 브랜드 서브컬렉션에 추가
         await addDoc(collection(db, 'brands', brandId, 'managers'), subData);
 
-        // managers 최상위 문서: 이미 있으면 brand_ids에 추가, 없으면 신규 생성
         const mgrRef = doc(db, 'managers', loginEmail);
         const mgrSnap = await getDoc(mgrRef);
         if (mgrSnap.exists()) {
