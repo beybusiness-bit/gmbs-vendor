@@ -332,13 +332,8 @@ onAuthStateChanged(auth, async (user) => {
         }
       } catch (_) { /* 초대 확인 실패는 무시 */ }
 
-      // 브랜드 담당자인데 유효한 브랜드가 없으면 일반회원으로 처리
-      const effectiveStatus = (currentUserDoc.member_status === STATUS.BRAND && getUserBrandIds(currentUserDoc).length === 0)
-        ? STATUS.GENERAL
-        : (currentUserDoc.member_status || STATUS.GENERAL);
-
       syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
-      renderApp(effectiveStatus);
+      renderApp(currentUserDoc.member_status || STATUS.GENERAL);
     }
   } catch (e) {
     // 예외 발생 시 로딩 화면이 고정되지 않도록 보장
@@ -404,17 +399,22 @@ async function syncPersonDoc(user, userData) {
 
 // ── 앱 렌더링 ──
 function renderApp(memberStatus, isNewLink = false) {
+  // brand_ids(또는 brand_id)가 실제로 비어있으면 GENERAL로 강제 조정
   if (memberStatus === STATUS.BRAND) {
     const ids = getUserBrandIds(currentUserDoc);
-    setActiveBrand(ids[0] || null);
+    if (ids.length === 0) {
+      memberStatus = STATUS.GENERAL;
+    } else {
+      setActiveBrand(ids[0] || null);
+    }
   }
   updateSidebarUser(memberStatus);
-  if (isNewLink) {
+  if (isNewLink && memberStatus === STATUS.BRAND) {
     renderPage('welcome');
   } else if (memberStatus === STATUS.BRAND) {
     renderPage('dashboard');
   } else {
-    checkApplicationStatus();
+    renderPage('member-onboarding');
   }
   showApp();
   // 앱 진입 시 초기 배지 계산 (백그라운드)
@@ -486,6 +486,12 @@ async function renderSidebar(memberStatus) {
     const dataList = await Promise.all(brandIds.map(id => getBrandData(id)));
     // 삭제된 브랜드는 사이드바에서 제외
     const validPairs = brandIds.map((id, i) => [id, dataList[i]]).filter(([, d]) => !d.deleted);
+
+    // 유효한 브랜드가 없으면 일반회원 메뉴로 폴백
+    if (validPairs.length === 0) {
+      return renderSidebar(STATUS.GENERAL);
+    }
+
     const dataMap  = Object.fromEntries(validPairs);
     const current  = dataMap[activeBrandId] || validPairs[0]?.[1] || { name: '', photoUrl: null };
 
