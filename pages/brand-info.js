@@ -411,9 +411,10 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       </div>
     </div>
 
+    <!-- 사업자 섹션 -->
     <div id="edit-business-fields" style="display:${isBiz ? 'block' : 'none'}">
       <div class="form-group">
-        <label class="form-label">사업자등록번호</label>
+        <label class="form-label">사업자등록번호 <span style="color:var(--danger)">*</span></label>
         <div style="display:flex;gap:8px">
           <input id="edit-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000" value="${si.business_reg_number || ''}" style="flex:1">
           <button type="button" id="btn-edit-verify-biz"
@@ -424,7 +425,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         <div id="edit-biz-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
       </div>
       <div class="form-group">
-        <label class="form-label">과세 유형</label>
+        <label class="form-label">과세 유형 <span style="color:var(--danger)">*</span></label>
         <select id="edit-taxation-type" class="form-input form-select">
           <option value="">선택하세요</option>
           <option value="일반"${si.taxation_type === '일반' ? ' selected' : ''}>일반과세</option>
@@ -446,11 +447,19 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         <input id="edit-business-start-date" class="form-input" type="text" inputmode="numeric" maxlength="8"
           placeholder="YYYYMMDD (예: 20200115)" value="${esc(si.business_start_date || '')}">
       </div>
+      <div class="form-group">
+        <label class="form-label" id="edit-address-biz-label">사업장 주소 <span style="color:var(--danger)">*</span></label>
+        <input id="edit-address-biz" class="form-input" type="text" placeholder="사업장 주소" value="${esc(si.address || '')}">
+      </div>
+      <div id="edit-vat-notice" style="display:${si.taxation_type ? 'block' : 'none'};margin-bottom:16px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;line-height:1.6">
+        ⚠️ 세금계산서 발행을 위해 사업자 이메일이 필요할 수 있습니다. 운영자가 별도 안내드립니다.
+      </div>
     </div>
 
+    <!-- 개인 섹션 -->
     <div id="edit-individual-fields" style="display:${isInd ? 'block' : 'none'}">
       <div class="form-group">
-        <label class="form-label">주민등록번호</label>
+        <label class="form-label">주민등록번호 <span style="color:var(--danger)">*</span></label>
         <input id="edit-resident-number" class="form-input" type="password"
           placeholder="000000-0000000" maxlength="14" autocomplete="off" value="${existingResidentNumber}">
         <div id="edit-resident-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
@@ -459,12 +468,13 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
           AES-256 암호화 저장, 세무법정 보관 기간(5년) 이후 파기됩니다.
         </p>
       </div>
+      <div class="form-group">
+        <label class="form-label">주소 <span style="color:var(--danger)">*</span></label>
+        <input id="edit-address-ind" class="form-input" type="text" placeholder="거주지 주소" value="${esc(si.address || '')}">
+      </div>
     </div>
 
-    <div class="form-group">
-      <label class="form-label">주소 <span style="color:var(--danger)">*</span></label>
-      <input id="edit-address" class="form-input" type="text" placeholder="사업장 또는 거주지 주소" value="${esc(si.address || '')}">
-    </div>
+    <!-- 공통: 통장 정보 -->
     <div class="form-group">
       <label class="form-label">은행명 <span style="color:var(--danger)">*</span></label>
       <input id="edit-bank-name" class="form-input" type="text" placeholder="국민은행" value="${si.bank_name || ''}">
@@ -501,6 +511,12 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       document.getElementById('edit-business-fields').style.display = isBusiness ? 'block' : 'none';
       document.getElementById('edit-individual-fields').style.display = isBusiness ? 'none' : 'block';
     });
+  });
+
+  // 과세유형 선택 시 부가세 안내 문구 토글
+  document.getElementById('edit-taxation-type').addEventListener('change', () => {
+    const val = document.getElementById('edit-taxation-type').value;
+    document.getElementById('edit-vat-notice').style.display = val ? 'block' : 'none';
   });
 
   // 사업자등록번호 자동 포맷 + 형식 힌트
@@ -580,16 +596,21 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     const errEl = document.getElementById('edit-settlement-error');
     const bizType = document.querySelector('input[name="edit-biz-type"]:checked')?.value;
 
-    if (!bizType)                                         { errEl.textContent = '사업자 여부를 선택해 주세요.'; return; }
-    if (!document.getElementById('edit-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
-    if (!document.getElementById('edit-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
-    if (!document.getElementById('edit-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
-    if (!document.getElementById('edit-address').value.trim())        { errEl.textContent = '주소를 입력해 주세요.'; return; }
+    if (!bizType) { errEl.textContent = '사업자 여부를 선택해 주세요.'; return; }
     if (bizType === 'business') {
+      if (!document.getElementById('edit-biz-reg-number').value.trim())        { errEl.textContent = '사업자등록번호를 입력해주세요.'; document.getElementById('edit-biz-reg-number').focus(); return; }
+      if (!document.getElementById('edit-taxation-type').value)                { errEl.textContent = '과세 유형을 선택해주세요.'; document.getElementById('edit-taxation-type').focus(); return; }
       if (!document.getElementById('edit-corp-name').value.trim())             { errEl.textContent = '상호를 입력해주세요.'; document.getElementById('edit-corp-name').focus(); return; }
       if (!document.getElementById('edit-representative-name').value.trim())   { errEl.textContent = '대표자명을 입력해주세요.'; document.getElementById('edit-representative-name').focus(); return; }
       if (!document.getElementById('edit-business-start-date').value.trim())   { errEl.textContent = '사업자등록일을 입력해주세요.'; document.getElementById('edit-business-start-date').focus(); return; }
+      if (!document.getElementById('edit-address-biz').value.trim())           { errEl.textContent = '사업장 주소를 입력해주세요.'; document.getElementById('edit-address-biz').focus(); return; }
+    } else {
+      if (!document.getElementById('edit-resident-number').value.trim())       { errEl.textContent = '주민등록번호를 입력해주세요.'; document.getElementById('edit-resident-number').focus(); return; }
+      if (!document.getElementById('edit-address-ind').value.trim())           { errEl.textContent = '주소를 입력해주세요.'; document.getElementById('edit-address-ind').focus(); return; }
     }
+    if (!document.getElementById('edit-bank-name').value.trim())      { errEl.textContent = '은행을 입력해주세요.'; return; }
+    if (!document.getElementById('edit-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해주세요.'; return; }
+    if (!document.getElementById('edit-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해주세요.'; return; }
     const validationErrors = validateSettlementForm({
       bizType,
       bizNumber:      document.getElementById('edit-biz-reg-number')?.value || '',
@@ -613,7 +634,9 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       const updatedSettlement = {
         ...(si || {}),
         business_type:   bizType,
-        address:         document.getElementById('edit-address').value.trim(),
+        address:         isBusiness
+          ? document.getElementById('edit-address-biz').value.trim()
+          : document.getElementById('edit-address-ind').value.trim(),
         bank_name:       document.getElementById('edit-bank-name').value.trim(),
         account_holder:  document.getElementById('edit-account-holder').value.trim(),
         account_number:  accountNumberEnc,
