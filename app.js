@@ -1167,7 +1167,7 @@ async function fetchMyApplications() {
 
 // ── 신청 목록 공통 필터 ──
 // 승인된 항목은 어떤 경우든 처리 완료로 간주하여 목록에서 제외.
-// (어드민의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
+// (운영자의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
 function filterDeletedBrandApps(apps, joins) {
   return Promise.resolve(
     [...apps, ...joins].filter(item => item.status !== STATUS.APPROVED)

@@ -79,7 +79,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       </div>`;
   })();
 
-  // 정산 정보 (어드민 확정값: 읽기 전용)
+  // 정산 정보 (운영자 확정값: 읽기 전용)
   const adminConfirmedHtml = (() => {
     const rows = [];
     if (brandType) rows.push(infoRow('거래유형', brandType));
@@ -451,9 +451,9 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     <div class="form-group">
       <label class="form-label">위탁판매대행수수료 (%)</label>
       <input id="edit-commission-rate" class="form-input" type="number" min="0" max="100" step="0.1"
-        value="${b.fee_info?.commission_rate ?? ''}" placeholder="어드민 확정 전 표시 안 됨" readonly
+        value="${b.fee_info?.commission_rate ?? ''}" placeholder="운영자 확정 전 표시 안 됨" readonly
         style="background:var(--gray-50);color:var(--gray-400)">
-      <p style="font-size:12px;color:var(--gray-400);margin-top:4px">수수료율은 어드민에서 확정합니다.</p>
+      <p style="font-size:12px;color:var(--gray-400);margin-top:4px">수수료율은 운영자에서 확정합니다.</p>
     </div>` : ''}
 
     <div id="edit-settlement-error" class="form-error"></div>
@@ -571,7 +571,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         bank_name:       document.getElementById('edit-bank-name').value.trim(),
         account_holder:  document.getElementById('edit-account-holder').value.trim(),
         account_number:  accountNumberEnc,
-        // 서류 URL(id_card_url 등)은 어드민 전용 — 덮어쓰지 않음
+        // 서류 URL(id_card_url 등)은 운영자 전용 — 덮어쓰지 않음
         ...(isBusiness ? {
           business_reg_number: document.getElementById('edit-biz-reg-number').value.trim(),
           taxation_type:       document.getElementById('edit-taxation-type').value,
@@ -583,7 +583,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         }),
       };
 
-      // 어드민 업로드 URL은 null로 삭제되지 않도록 undefined/null 키 제거
+      // 운영자 업로드 URL은 null로 삭제되지 않도록 undefined/null 키 제거
       Object.keys(updatedSettlement).forEach(k => {
         if (updatedSettlement[k] === null) delete updatedSettlement[k];
       });
