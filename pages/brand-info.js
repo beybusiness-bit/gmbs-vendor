@@ -78,6 +78,10 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
   const onboardingStatus = b.onboarding_status || b.brand_status || b.status;
   const brandType = b.brand_type || '';
 
+  // 암호화된 정산 필드 복호화 (사업자등록번호는 표시용 평문으로, 계좌번호는 버튼 클릭 시 복호화)
+  let bizRegDisplay = si.business_reg_number || '';
+  try { if (bizRegDisplay) bizRegDisplay = await decryptValue(bizRegDisplay); } catch (_) {}
+
   // 관련 사이트
   const websiteUrlsHtml = (() => {
     const urls = b.website_urls || (b.brand_link ? [b.brand_link] : []);
@@ -113,8 +117,8 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
     const rows = [];
     if (bizLabel) rows.push(infoRow('사업자 여부', bizLabel));
     if (si.business_type === 'business') {
-      if (si.business_reg_number) rows.push(infoRow('사업자등록번호', si.business_reg_number));
-      if (si.taxation_type)       rows.push(infoRow('과세유형', si.taxation_type));
+      if (bizRegDisplay) rows.push(infoRow('사업자등록번호', esc(bizRegDisplay)));
+      if (si.taxation_type) rows.push(infoRow('과세유형', si.taxation_type));
       if (si.corp_name)           rows.push(infoRow('상호', esc(si.corp_name)));
       if (si.representative_name) rows.push(infoRow('대표자명', esc(si.representative_name)));
       if (si.business_start_date) rows.push(infoRow('사업자등록일', si.business_start_date));
@@ -126,7 +130,17 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
     }
     if (si.bank_name)      rows.push(infoRow('은행명', si.bank_name));
     if (si.account_holder) rows.push(infoRow('예금주명', si.account_holder));
-    if (si.account_number) rows.push(infoRow('계좌번호', '••••••-••-••••••'));
+    if (si.account_number) rows.push(`
+      <div class="info-row">
+        <span class="info-label">계좌번호</span>
+        <span class="info-value" style="display:flex;align-items:center;gap:8px">
+          <span id="account-number-display">••••••-••-••••••</span>
+          <button id="btn-reveal-account"
+            style="font-size:11px;padding:2px 10px;background:var(--gray-100);border:1px solid var(--gray-200);border-radius:4px;cursor:pointer;color:var(--gray-600);font-weight:600;flex-shrink:0">
+            전체 보기
+          </button>
+        </span>
+      </div>`);
     const commissionRate = b.fee_info?.commission_rate;
     if (brandType === '위탁' && commissionRate != null) {
       rows.push(infoRow('위탁판매수수료', `${commissionRate}%`));
@@ -237,6 +251,18 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
   });
   document.getElementById('btn-edit-settlement')?.addEventListener('click', () => {
     openEditSettlementModal({ brandId, brand: b, showModal, closeModal, container, userDoc });
+  });
+  document.getElementById('btn-reveal-account')?.addEventListener('click', async function() {
+    this.disabled = true;
+    this.textContent = '...';
+    try {
+      const plain = await decryptValue(si.account_number);
+      document.getElementById('account-number-display').textContent = plain;
+      this.remove();
+    } catch (_) {
+      this.textContent = '오류';
+      this.disabled = false;
+    }
   });
 }
 
