@@ -146,14 +146,6 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
     });
   });
 
-  container.querySelectorAll('.btn-delete-manager').forEach(btn => {
-    const id = btn.dataset.id;
-    const manager = managers.find(m => m.id === id);
-    btn.addEventListener('click', () => {
-      openDeleteConfirm({ brandId, manager, showModal, closeModal, container, userDoc, user });
-    });
-  });
-
   if (isMain) {
     container.querySelectorAll('.btn-approve-join').forEach(btn => {
       const id = btn.dataset.id;
@@ -176,7 +168,6 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
 function managerCard(m, myEmail, isMain) {
   const isMe = (m.login_google_email || '').toLowerCase() === myEmail;
   const canEdit = isMain || isMe;
-  const canDelete = isMain && !isMe;
   return `
     <div class="card manager-card" data-manager-id="${m.id}" style="margin-bottom:12px;cursor:pointer" title="클릭하여 상세 정보 보기">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -196,12 +187,11 @@ function managerCard(m, myEmail, isMain) {
             ${m.login_google_email ? `<span style="color:var(--gray-400);font-size:12px">🔑 ${m.login_google_email}</span>` : ''}
           </div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          ${canEdit ? `<button class="btn btn-outline btn-edit-manager" data-id="${m.id}"
-            style="width:auto;padding:6px 12px;font-size:13px">수정</button>` : ''}
-          ${canDelete ? `<button class="btn btn-delete-manager" data-id="${m.id}"
-            style="width:auto;padding:6px 12px;font-size:13px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;cursor:pointer">삭제</button>` : ''}
-        </div>
+        ${canEdit ? `
+        <div style="flex-shrink:0">
+          <button class="btn btn-outline btn-edit-manager" data-id="${m.id}"
+            style="width:auto;padding:6px 12px;font-size:13px">수정</button>
+        </div>` : ''}
       </div>
     </div>`;
 }
@@ -264,7 +254,7 @@ function openApproveConfirm({ brandId, joinReq, managers, user, showModal, close
       </select>
     </div>
     <div id="approve-error" class="form-error"></div>
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-approve-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-approve-confirm" style="flex:2">승인하기</button>
     </div>
@@ -369,12 +359,9 @@ function openRejectConfirm({ joinReq, user, showModal, closeModal, rerender }) {
       <textarea id="reject-reason" class="form-input" rows="3" placeholder="신청자에게 전달할 거절 사유를 입력하세요" style="resize:vertical"></textarea>
     </div>
     <div id="reject-error" class="form-error"></div>
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-reject-cancel" style="flex:1">취소</button>
-      <button class="btn" id="btn-reject-confirm"
-        style="flex:2;background:var(--danger);color:#fff;border:none;border-radius:10px;height:48px;font-weight:700;cursor:pointer">
-        거절하기
-      </button>
+      <button class="btn btn-danger" id="btn-reject-confirm" style="flex:2">거절하기</button>
     </div>
   `);
 
@@ -418,12 +405,9 @@ function openDeleteConfirm({ brandId, manager, showModal, closeModal, container,
       </span>
     </p>
     <div id="del-error" class="form-error"></div>
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-del-cancel" style="flex:1">취소</button>
-      <button class="btn" id="btn-del-confirm"
-        style="flex:1;background:var(--danger);color:#fff;border:none;border-radius:10px;height:48px;font-weight:700;cursor:pointer">
-        삭제
-      </button>
+      <button class="btn btn-danger" id="btn-del-confirm" style="flex:1">삭제</button>
     </div>
   `);
 
@@ -509,7 +493,7 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
       <input id="m-login-email2" class="form-input" type="email" placeholder="동일한 이메일 재입력">
     </div>` : ''}
     <div id="m-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-m-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-m-save" style="flex:2">${isEdit ? '저장' : '추가'}</button>
     </div>
@@ -636,13 +620,30 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
   });
 }
 
+// 보기 권한 → 쓰기 권한 의존 맵
+const VIEW_WRITE_DEPS = {
+  'brand-info.view':         ['brand-info.edit'],
+  'settlement-info.view':    ['settlement-info.edit'],
+  'products.view':           ['products.create', 'products.edit'],
+  'customer-inquiries.view': ['customer-inquiries.reply'],
+  'inquiries.view':          ['inquiries.create'],
+};
+const WRITE_KEYS = new Set(Object.values(VIEW_WRITE_DEPS).flat());
+
 // ── 담당자 상세 / 권한 편집 모달 ──
 async function openManagerDetailModal({ brandId, manager, managers, isMain, showModal, closeModal, container, userDoc, user }) {
-  const isMe = (manager.login_google_email || '').toLowerCase() === ((user.email || '').toLowerCase());
+  const myEmail = (user.email || '').toLowerCase();
+  const isMe = (manager.login_google_email || '').toLowerCase() === myEmail;
   const isSubjectMain = manager.role === '주관리자';
   const perm = manager.permissions || {};
+  const canDelete = isMain && !isMe;
+  const canEditPerms = isMain && !isSubjectMain;
 
-  // 그룹별 권한 목록 렌더
+  function viewGrantedFor(writeKey) {
+    const viewKey = Object.keys(VIEW_WRITE_DEPS).find(vk => VIEW_WRITE_DEPS[vk].includes(writeKey));
+    return viewKey ? perm[viewKey] !== false : true;
+  }
+
   const groups = [...new Set(ADJUSTABLE_PERMISSIONS.map(p => p.group))];
   const permRows = isSubjectMain
     ? `<div style="color:var(--gray-500);font-size:13px;padding:12px 0">주관리자는 모든 권한을 가집니다.</div>`
@@ -652,21 +653,39 @@ async function openManagerDetailModal({ brandId, manager, managers, isMain, show
           <div style="margin-bottom:14px">
             <div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:.05em;margin-bottom:8px">${g.toUpperCase()}</div>
             ${items.map(p => {
-              const granted = perm[p.key] !== false;
+              const isWriteKey = WRITE_KEYS.has(p.key);
+              const viewOk = isWriteKey ? viewGrantedFor(p.key) : true;
+              const forcedOff = isWriteKey && !viewOk;
+              const granted = forcedOff ? false : perm[p.key] !== false;
+              const disabled = !canEditPerms || forcedOff;
+              const trackColor = forcedOff ? 'var(--gray-200)' : granted ? 'var(--primary)' : 'var(--gray-300)';
+              const knobColor = forcedOff ? 'var(--gray-300)' : '#fff';
+              const knobLeft = granted && !forcedOff ? '21px' : '3px';
               return `
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray-100)">
-                  <span style="font-size:13px">${p.label}</span>
-                  <label class="perm-toggle" style="position:relative;display:inline-block;width:40px;height:22px;cursor:${isMain ? 'pointer' : 'default'}">
-                    <input type="checkbox" data-perm-key="${p.key}" ${granted ? 'checked' : ''} ${!isMain ? 'disabled' : ''}
+                <div class="perm-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray-100)" data-perm-row="${p.key}">
+                  <span class="perm-label" style="font-size:13px${forcedOff ? ';color:var(--gray-300)' : ''}">${p.label}</span>
+                  <label class="perm-toggle" style="position:relative;display:inline-block;width:40px;height:22px;cursor:${disabled ? 'default' : 'pointer'}">
+                    <input type="checkbox" data-perm-key="${p.key}" ${granted ? 'checked' : ''} ${disabled ? 'disabled' : ''}
                       style="opacity:0;width:0;height:0;position:absolute">
-                    <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:${granted ? 'var(--primary)' : 'var(--gray-300)'};border-radius:22px;transition:background .2s">
-                      <span style="position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:3px;left:${granted ? '21px' : '3px'};transition:left .2s"></span>
+                    <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:${trackColor};border-radius:22px;transition:background .2s">
+                      <span style="position:absolute;width:16px;height:16px;background:${knobColor};border-radius:50%;top:3px;left:${knobLeft};transition:left .2s"></span>
                     </span>
                   </label>
                 </div>`;
             }).join('')}
           </div>`;
       }).join('');
+
+  const footerHtml = isMain ? `
+    <div id="perm-save-error" class="form-error"></div>
+    <div class="modal-footer" style="display:flex;gap:10px;align-items:center">
+      ${canDelete ? `<button class="btn btn-danger" id="btn-perm-delete" style="flex:1">삭제</button>` : ''}
+      <button class="btn btn-outline" id="btn-perm-cancel" style="flex:1">닫기</button>
+      ${canEditPerms ? `<button class="btn btn-primary" id="btn-perm-save" style="flex:2">권한 저장</button>` : ''}
+    </div>` : `
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-perm-cancel" style="width:100%">닫기</button>
+    </div>`;
 
   showModal(`
     <div class="modal-title">담당자 상세</div>
@@ -691,29 +710,60 @@ async function openManagerDetailModal({ brandId, manager, managers, isMain, show
       ${!isMain && !isSubjectMain ? '<div style="background:#fef3c7;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">권한 수정은 주관리자만 가능합니다.</div>' : ''}
       ${permRows}
     </div>
-    ${isMain && !isSubjectMain ? `
-      <div id="perm-save-error" class="form-error"></div>
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <button class="btn btn-outline" id="btn-perm-cancel" style="flex:1">닫기</button>
-        <button class="btn btn-primary" id="btn-perm-save" style="flex:2">권한 저장</button>
-      </div>` : `
-      <button class="btn btn-outline" id="btn-perm-cancel" style="width:100%;margin-top:8px">닫기</button>`}
+    ${footerHtml}
   `);
 
-  // 토글 UI 인터랙션
-  if (isMain && !isSubjectMain) {
+  function applyToggleStyle(input, checked, disabled) {
+    const span = input.nextElementSibling;
+    const knob = span.querySelector('span');
+    if (disabled) {
+      span.style.background = 'var(--gray-200)';
+      knob.style.background = 'var(--gray-300)';
+      knob.style.left = '3px';
+    } else if (checked) {
+      span.style.background = 'var(--primary)';
+      knob.style.background = '#fff';
+      knob.style.left = '21px';
+    } else {
+      span.style.background = 'var(--gray-300)';
+      knob.style.background = '#fff';
+      knob.style.left = '3px';
+    }
+  }
+
+  if (canEditPerms) {
     document.querySelectorAll('.perm-toggle input[data-perm-key]').forEach(input => {
       input.addEventListener('change', () => {
-        const span = input.nextElementSibling;
-        const knob = span.querySelector('span');
-        if (input.checked) {
-          span.style.background = 'var(--primary)';
-          knob.style.left = '21px';
-        } else {
-          span.style.background = 'var(--gray-300)';
-          knob.style.left = '3px';
-        }
+        applyToggleStyle(input, input.checked, false);
+
+        const key = input.dataset.permKey;
+        const deps = VIEW_WRITE_DEPS[key];
+        if (!deps) return;
+
+        deps.forEach(writeKey => {
+          const writeInput = document.querySelector(`.perm-toggle input[data-perm-key="${writeKey}"]`);
+          if (!writeInput) return;
+          const row = writeInput.closest('.perm-row');
+          const label = row?.querySelector('.perm-label');
+          if (!input.checked) {
+            writeInput.checked = false;
+            writeInput.disabled = true;
+            if (label) label.style.color = 'var(--gray-300)';
+            applyToggleStyle(writeInput, false, true);
+          } else {
+            writeInput.disabled = false;
+            if (label) label.style.color = '';
+            applyToggleStyle(writeInput, writeInput.checked, false);
+          }
+        });
       });
+    });
+  }
+
+  if (canDelete) {
+    document.getElementById('btn-perm-delete').addEventListener('click', () => {
+      closeModal();
+      openDeleteConfirm({ brandId, manager, showModal, closeModal, container, userDoc, user });
     });
   }
 

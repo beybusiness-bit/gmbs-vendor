@@ -183,7 +183,7 @@ function openProductModal({ brandId, product, showModal, closeModal, container, 
         placeholder="어떤 내용을 수정하고 싶으신지 적어주세요"></textarea>
     </div>` : ''}
     <div id="prod-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-prod-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-prod-save" style="flex:2">
         ${isEdit ? '수정 요청 제출' : '등록 신청'}
@@ -259,7 +259,7 @@ function openProductDetail({ brandId, product: p, showModal, closeModal, contain
       <div style="font-weight:600;margin-bottom:6px">상품 설명</div>
       <p style="color:var(--gray-600);line-height:1.6">${p.description}</p>
     </div>` : ''}
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-detail-close" style="flex:1">닫기</button>
       ${canEdit ? `<button class="btn btn-primary" id="btn-detail-edit" style="flex:2">수정 요청하기</button>` : ''}
     </div>

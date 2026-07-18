@@ -281,8 +281,8 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     </div>
 
     <div id="edit-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1;margin-top:0">취소</button>
+    <div class="modal-footer" style="display:flex;gap:10px">
+      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-edit-save" style="flex:2">저장</button>
     </div>
   `);
@@ -498,8 +498,8 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     </div>` : ''}
 
     <div id="edit-settlement-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1;margin-top:0">취소</button>
+    <div class="modal-footer" style="display:flex;gap:10px">
+      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-settlement-save" style="flex:2">저장</button>
     </div>
   `);

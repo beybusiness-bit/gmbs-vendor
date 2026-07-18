@@ -129,7 +129,7 @@ function openNewInquiry({ userDoc, user, showModal, closeModal, container }) {
         placeholder="문의 내용을 상세히 적어주세요"></textarea>
     </div>
     <div id="inq-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-inq-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-inq-submit" style="flex:2">문의 등록</button>
     </div>

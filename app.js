@@ -882,7 +882,9 @@ async function openJoinModal() {
       <div id="join-role-hint" class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
     <div id="join-error" class="form-error"></div>
-    <button class="btn btn-primary" id="btn-join-submit" style="margin-top:8px">신청하기</button>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="btn-join-submit">신청하기</button>
+    </div>
   `);
 
   // 브랜드 검색 로직
@@ -1095,7 +1097,9 @@ async function openApplyModal() {
     </div>
 
     <div id="app-error" class="form-error"></div>
-    <button class="btn btn-primary" id="btn-app-submit" style="margin-top:8px">신청하기</button>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="btn-app-submit">신청하기</button>
+    </div>
   `);
 
   // URL 행 추가 함수
@@ -1235,7 +1239,9 @@ function showApplicationDetail(item) {
     ${row('연락처', esc(item.applicant_phone || ''))}
     ${row('이메일', esc(item.applicant_contact_email || ''))}
     ${rejReason ? `<div style="margin-top:12px;padding:10px 12px;background:#fee2e2;border-radius:8px;font-size:13px;color:#b91c1c"><strong>거절 사유:</strong> ${esc(rejReason)}</div>` : ''}
-    <button class="btn btn-outline" id="btn-detail-close" style="margin-top:16px">닫기</button>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-detail-close" style="width:100%">닫기</button>
+    </div>
   `);
   document.getElementById('btn-detail-close').addEventListener('click', closeModal);
 }
@@ -1330,9 +1336,9 @@ async function renderPendingFull(container) {
   document.getElementById('btn-new-apply').addEventListener('click', () => {
     showModal(`
       <div class="modal-title">새 신청 유형 선택</div>
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px">
-        <button class="btn btn-primary" id="btn-modal-join" style="margin-top:0">기존 브랜드 담당자로 합류</button>
-        <button class="btn btn-outline" id="btn-modal-apply" style="margin-top:0">새 브랜드 등록 신청</button>
+      <div class="modal-footer" style="display:flex;flex-direction:column;gap:12px">
+        <button class="btn btn-primary" id="btn-modal-join">기존 브랜드 담당자로 합류</button>
+        <button class="btn btn-outline" id="btn-modal-apply">새 브랜드 등록 신청</button>
       </div>
     `);
     document.getElementById('btn-modal-join').addEventListener('click', () => { closeModal(); openJoinModal(); });
