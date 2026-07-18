@@ -514,14 +514,16 @@ const MEMBER_STATUS_LABEL = {
 
 // ── 사이드바 ──
 async function updateSidebarUser(memberStatus) {
-  $('user-name-text').textContent = currentUser.displayName || currentUser.email;
+  const displayName = currentUserDoc?.name || currentUser.displayName || currentUser.email;
+  $('user-name-text').textContent = displayName;
   $('user-role-text').textContent = MEMBER_STATUS_LABEL[memberStatus] || memberStatus;
 
   const avatarEl = $('user-avatar');
-  if (currentUser.photoURL) {
-    avatarEl.innerHTML = `<img src="${currentUser.photoURL}" alt="프로필">`;
+  const photoUrl = currentUserDoc?.photo_url || currentUser.photoURL;
+  if (photoUrl) {
+    avatarEl.innerHTML = `<img src="${photoUrl}" alt="프로필">`;
   } else {
-    avatarEl.textContent = (currentUser.displayName || currentUser.email || '?')[0].toUpperCase();
+    avatarEl.textContent = (displayName || '?')[0].toUpperCase();
   }
   await renderSidebar(memberStatus);
 }
@@ -733,7 +735,13 @@ async function renderPage(page) {
     case 'notices':       await renderNotices(ctx()); break;
     case 'inquiries':             await renderInquiries(ctx()); break;
     case 'customer-inquiries':    await renderCustomerInquiries(ctx()); break;
-    case 'account':               await renderAccount(ctx()); break;
+    case 'account':               await renderAccount({ ...ctx(), onSave: (updates) => {
+      if (updates.name !== undefined)         currentUserDoc.name = updates.name;
+      if (updates.phone !== undefined)        currentUserDoc.phone = updates.phone;
+      if (updates.contact_email !== undefined) currentUserDoc.contact_email = updates.contact_email;
+      if (updates.photo_url !== undefined)    currentUserDoc.photo_url = updates.photo_url;
+      updateSidebarUser(currentUserDoc.member_status || STATUS.GENERAL);
+    } }); break;
     default:              container.innerHTML = '<p>페이지를 찾을 수 없습니다.</p>';
   }
 

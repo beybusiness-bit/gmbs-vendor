@@ -54,12 +54,12 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
     )).catch(() => null),
   ]);
 
-  const managers = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const rawManagers = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const pendingJoins = joinSnap ? joinSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
   const myEmail = (user.email || '').toLowerCase().trim();
 
   // 현재 로그인 계정이 managers 서브컬렉션에 없으면 자동 추가
-  const alreadyIn = managers.some(m => (m.login_google_email || '').toLowerCase() === myEmail);
+  const alreadyIn = rawManagers.some(m => (m.login_google_email || '').toLowerCase() === myEmail);
   if (!alreadyIn) {
     try {
       const hasMain = managers.some(m => m.role === '주관리자' && m.active !== false);
@@ -74,13 +74,22 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
         updated_at:         serverTimestamp(),
       };
       const newRef = await addDoc(collection(db, 'brands', brandId, 'managers'), newData);
-      managers.unshift({ id: newRef.id, ...newData });
+      rawManagers.unshift({ id: newRef.id, ...newData });
     } catch (_) { /* 추가 실패 시 목록만 표시 */ }
   }
 
   // 내 역할 파악
-  const myRecord = managers.find(m => (m.login_google_email || '').toLowerCase() === myEmail);
+  const myRecord = rawManagers.find(m => (m.login_google_email || '').toLowerCase() === myEmail);
   const isMain = myRecord?.role === '주관리자';
+
+  // 정렬: 나 → 주관리자 → 부관리자 → 나머지
+  const roleOrder = r => r === '주관리자' ? 0 : r === '부관리자' ? 1 : 2;
+  const managers = [...rawManagers].sort((a, b) => {
+    const aMe = (a.login_google_email || '').toLowerCase() === myEmail;
+    const bMe = (b.login_google_email || '').toLowerCase() === myEmail;
+    if (aMe !== bMe) return aMe ? -1 : 1;
+    return roleOrder(a.role) - roleOrder(b.role);
+  });
 
   function rerender() {
     renderManagers({ userDoc, user, container, showModal, closeModal });
@@ -157,8 +166,12 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
 
 function managerCard(m, myEmail) {
   const isMe = (m.login_google_email || '').toLowerCase() === myEmail;
+  const avatarHtml = m.photo_url
+    ? `<img src="${m.photo_url}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid var(--gray-200)">`
+    : `<div style="width:44px;height:44px;border-radius:50%;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex-shrink:0">${(m.name || '?')[0].toUpperCase()}</div>`;
   return `
-    <div class="card manager-card" data-manager-id="${m.id}" style="margin-bottom:12px;cursor:pointer" title="클릭하여 상세 정보 보기">
+    <div class="card manager-card" data-manager-id="${m.id}" style="margin-bottom:12px;cursor:pointer;display:flex;align-items:center;gap:12px" title="클릭하여 상세 정보 보기">
+      ${avatarHtml}
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
           <span style="font-size:16px;font-weight:700">${m.name || '-'}</span>
@@ -672,11 +685,12 @@ async function openManagerDetailModal({ brandId, manager: initialManager, manage
     </div>`;
 
   function infoViewHtml(m) {
+    const av = m.photo_url
+      ? `<img src="${m.photo_url}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid var(--gray-200)">`
+      : `<div style="width:44px;height:44px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--primary);flex-shrink:0">${(m.name || '?')[0].toUpperCase()}</div>`;
     return `
       <div id="manager-info-view" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--gray-100)">
-        <div style="width:44px;height:44px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--primary);flex-shrink:0">
-          ${(m.name || '?')[0].toUpperCase()}
-        </div>
+        ${av}
         <div style="flex:1;min-width:0">
           <div style="font-size:16px;font-weight:700">${m.name || '-'}${isMe ? ' <span style="font-size:12px;background:#eff6ff;color:var(--primary);padding:2px 6px;border-radius:6px">나</span>' : ''}</div>
           <div style="font-size:13px;color:var(--gray-500);margin-top:2px">

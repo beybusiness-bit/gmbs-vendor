@@ -30,6 +30,13 @@ function fmt(ts) {
   return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
 }
 
+function fmtBizDate(s) {
+  if (!s) return '';
+  const clean = s.replace(/-/g, '');
+  if (clean.length === 8) return clean.slice(0,4) + '-' + clean.slice(4,6) + '-' + clean.slice(6,8);
+  return s;
+}
+
 function infoRow(label, value) {
   if (!value) return '';
   return `
@@ -121,7 +128,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       if (si.taxation_type) rows.push(infoRow('과세유형', si.taxation_type));
       if (si.corp_name)           rows.push(infoRow('상호', esc(si.corp_name)));
       if (si.representative_name) rows.push(infoRow('대표자명', esc(si.representative_name)));
-      if (si.business_start_date) rows.push(infoRow('사업자등록일', si.business_start_date));
+      if (si.business_start_date) rows.push(infoRow('사업자등록일', fmtBizDate(si.business_start_date)));
       if (si.address)             rows.push(infoRow('사업장 주소', esc(si.address)));
     }
     if (si.business_type === 'individual') {
@@ -473,8 +480,8 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       </div>
       <div class="form-group" style="margin-top:12px">
         <label class="form-label">사업자등록일 <span style="color:var(--danger)">*</span></label>
-        <input id="edit-business-start-date" class="form-input" type="text" inputmode="numeric" maxlength="8"
-          placeholder="YYYYMMDD (예: 20200115)" value="${esc(si.business_start_date || '')}">
+        <input id="edit-business-start-date" class="form-input" type="text" inputmode="numeric" maxlength="10"
+          placeholder="YYYY-MM-DD" value="${esc(fmtBizDate(si.business_start_date || ''))}">
       </div>
       <div class="form-group">
         <label class="form-label" id="edit-address-biz-label">사업장 주소 <span style="color:var(--danger)">*</span></label>
@@ -532,6 +539,14 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       <button class="btn btn-primary" id="btn-settlement-save" style="flex:2">저장</button>
     </div>
   `);
+
+  // 사업자등록일 auto-hyphen (YYYY-MM-DD)
+  document.getElementById('edit-business-start-date').addEventListener('input', (e) => {
+    let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+    if (v.length > 6) v = v.slice(0,4) + '-' + v.slice(4,6) + '-' + v.slice(6);
+    else if (v.length > 4) v = v.slice(0,4) + '-' + v.slice(4);
+    e.target.value = v;
+  });
 
   // 사업자/개인 토글
   document.querySelectorAll('input[name="edit-biz-type"]').forEach(radio => {
@@ -675,7 +690,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
           taxation_type:       document.getElementById('edit-taxation-type').value,
           corp_name:           document.getElementById('edit-corp-name').value.trim(),
           representative_name: document.getElementById('edit-representative-name').value.trim(),
-          business_start_date: document.getElementById('edit-business-start-date').value.trim(),
+          business_start_date: fmtBizDate(document.getElementById('edit-business-start-date').value.trim()),
           resident_number:     null,
         } : {
           resident_number:     residentNumberEnc,
