@@ -85,11 +85,12 @@ export async function verifyBizNumber(bizNumber) {
   if (!res.ok) throw new Error('API 응답 오류: ' + res.status);
   const item = (await res.json())?.data?.[0];
   if (!item) throw new Error('조회 결과가 없습니다.');
-  return ({
+  const result = ({
     '01': { status: 'active',  label: '계속사업자' + (item.tax_type ? ' · ' + item.tax_type : '') },
     '02': { status: 'dormant', label: '휴업자' },
     '03': { status: 'closed',  label: '폐업자' },
   })[item.b_stt_cd] || { status: 'unknown', label: item.b_stt || '알 수 없음' };
+  return { ...result, rawItem: item };
 }
 
 // ── 저장 전 최종 검증 ─────────────────────────────────────
