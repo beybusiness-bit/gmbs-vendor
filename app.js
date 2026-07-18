@@ -991,6 +991,7 @@ async function openApplyModal() {
       <label class="form-label">연락용 이메일 <span style="color:var(--danger)">*</span></label>
       <input id="app-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
+
     <div id="app-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-app-submit" style="margin-top:8px">신청하기</button>
   `);
@@ -1039,6 +1040,7 @@ async function openApplyModal() {
     if (!brandName)    { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
     if (!phone)        { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail) { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
+
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
