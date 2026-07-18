@@ -409,8 +409,20 @@ function renderApp(memberStatus, isNewLink = false) {
     }
   }
   updateSidebarUser(memberStatus);
+
+  // 새로고침 시 이전 페이지 복원 (해시가 있고, 해당 계정 권한에 맞는 페이지일 때)
+  const hashPage = location.hash.replace('#', '');
+  const BRAND_ONLY_PAGES = new Set([
+    'dashboard', 'brand-info', 'persons', 'contracts',
+    'products', 'inventory', 'settlements', 'customer-inquiries',
+  ]);
+  const canRestore = hashPage && PAGE_TITLES[hashPage] &&
+    (memberStatus === STATUS.BRAND || !BRAND_ONLY_PAGES.has(hashPage));
+
   if (isNewLink && memberStatus === STATUS.BRAND) {
     renderPage('welcome');
+  } else if (canRestore) {
+    renderPage(hashPage);
   } else if (memberStatus === STATUS.BRAND) {
     renderPage('dashboard');
   } else {
@@ -652,6 +664,10 @@ function ctx() {
 }
 
 async function renderPage(page) {
+  // URL 해시 동기화 (새로고침 시 페이지 복원을 위해)
+  const newHash = '#' + page;
+  if (location.hash !== newHash) history.replaceState(null, '', newHash);
+
   $('topbar-title').textContent = PAGE_TITLES[page] || page;
   setActiveNav(page);
   const container = $('main-content');
