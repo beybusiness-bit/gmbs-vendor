@@ -350,7 +350,7 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
 
       await updateDoc(doc(db, 'brands', brandId), updates);
       closeModal();
-      await renderBrandInfo({ userDoc, container, showModal, closeModal });
+      window._gotoPage?.('brand-info');
     } catch (e) {
       document.getElementById('edit-error').textContent = '저장 중 오류가 발생했습니다.';
       saveBtn.disabled = false;
@@ -603,7 +603,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       });
 
       closeModal();
-      await renderBrandInfo({ userDoc, container, showModal, closeModal });
+      window._gotoPage?.('brand-info');
     } catch (e) {
       errEl.textContent = '저장 중 오류가 발생했습니다. 다시 시도해 주세요.';
       saveBtn.disabled = false;

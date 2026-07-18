@@ -710,7 +710,7 @@ async function renderDashboard() {
   container.innerHTML = `
     <div class="card" style="margin-bottom:20px">
       <h2 style="font-size:20px;font-weight:700;margin-bottom:6px">안녕하세요, ${esc(name)}님 👋</h2>
-      <p style="color:var(--gray-600);font-size:14px">GMBS 입점 브랜드 포털에 오신 것을 환영합니다.</p>
+      <p style="color:var(--gray-600);font-size:14px">GMBS 입점 브랜드 관리자에 오신 것을 환영합니다.</p>
     </div>
     <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
       <div class="card" style="text-align:center"><div class="spinner" style="margin:16px auto"></div></div>
