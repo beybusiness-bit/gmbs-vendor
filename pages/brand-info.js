@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, serverTimestamp } from '../firebase-init.js';
+import { db, doc, getDoc, updateDoc, serverTimestamp, storage, ref, uploadBytes, getDownloadURL } from '../firebase-init.js';
 import { encryptValue, decryptValue, isEncrypted } from '../utils/encryption.js';
 import {
   validateBizRegNumber, formatBizRegNumber,
@@ -10,15 +10,18 @@ import { esc, safeUrl } from '../utils/sanitize.js';
 // onboarding_status 값 기반 뱃지
 function statusBadge(status) {
   const map = {
-    '미계약':   'badge-gray',
-    '심사중':   'badge-yellow',
-    '계약완료': 'badge-yellow',
-    '승인':     'badge-green',
-    '입점확정': 'badge-green',
-    '거절':     'badge-red',
-    '종료':     'badge-red',
+    '미계약':             ['badge-gray',   '계약 전'],
+    '계약 전':            ['badge-gray',   '계약 전'],
+    '계약 정보 입력 필요': ['badge-orange', '계약 정보 입력 필요'],
+    '심사중':             ['badge-yellow', '심사중'],
+    '계약완료':           ['badge-yellow', '계약완료'],
+    '승인':               ['badge-green',  '승인'],
+    '입점확정':           ['badge-green',  '입점확정'],
+    '거절':               ['badge-red',    '거절'],
+    '종료':               ['badge-red',    '종료'],
   };
-  return `<span class="badge ${map[status] || 'badge-gray'}">${status || '-'}</span>`;
+  const [cls, label] = map[status] || ['badge-gray', status || '-'];
+  return `<span class="badge ${cls}">${label}</span>`;
 }
 
 function fmt(ts) {
@@ -94,12 +97,13 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
     return rows.join('');
   })();
 
-  // 정산 정보 (벤더 입력 — 마스킹 처리)
+  // 계약 및 정산 정보 (벤더 입력 — 민감 정보 마스킹)
   const settlementHtml = (() => {
     if (!si || (!si.bank_name && !si.account_holder)) return '';
     const bizLabel = si.business_type === 'business' ? '사업자' : si.business_type === 'individual' ? '개인(사업자없음)' : '';
     const rows = [];
     if (bizLabel) rows.push(infoRow('사업자 여부', bizLabel));
+    if (si.address) rows.push(infoRow('주소', esc(si.address)));
     if (si.business_type === 'business') {
       if (si.business_reg_number) rows.push(infoRow('사업자등록번호', si.business_reg_number));
       if (si.taxation_type) rows.push(infoRow('과세유형', si.taxation_type));
@@ -114,6 +118,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
   })();
 
   const hasSettlement = settlementHtml.length > 0;
+  const needsContractInfo = onboardingStatus === '계약 정보 입력 필요' && !hasSettlement;
 
   const contractCompleteNotice = onboardingStatus === '계약완료' ? `
     <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
@@ -128,19 +133,29 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
     <div style="max-width:720px">
       ${contractCompleteNotice}
       <div class="card" style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-          <div>
-            <h2 style="font-size:22px;font-weight:800">${esc(b.brand_name) || '-'}</h2>
-            <div style="margin-top:6px">${statusBadge(onboardingStatus)}</div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;gap:16px">
+          <div style="display:flex;align-items:center;gap:16px">
+            ${b.brand_photo_url
+              ? `<img src="${esc(b.brand_photo_url)}" alt="${esc(b.brand_name || '')}"
+                   style="width:72px;height:72px;border-radius:12px;object-fit:cover;border:1px solid var(--gray-200);flex-shrink:0">`
+              : `<div style="width:72px;height:72px;border-radius:12px;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;flex-shrink:0">
+                   ${(b.brand_name || '?')[0].toUpperCase()}
+                 </div>`}
+            <div>
+              <h2 style="font-size:22px;font-weight:800">${esc(b.brand_name) || '-'}</h2>
+              <div style="margin-top:6px">${statusBadge(onboardingStatus)}</div>
+            </div>
           </div>
-          <button class="btn btn-outline" id="btn-edit-brand" style="width:auto;padding:10px 20px">
+          <button class="btn btn-outline" id="btn-edit-brand" style="width:auto;padding:10px 20px;flex-shrink:0">
             ✏️ 정보 수정
           </button>
         </div>
 
         <div class="info-grid">
           ${adminConfirmedHtml}
-          ${infoRow('입점일', fmt(b.created_at))}
+          ${b.approved_at ? infoRow('입점승인일', fmt(b.approved_at)) : ''}
+          ${b.contract_completed_at ? infoRow('입점계약체결일', fmt(b.contract_completed_at)) : ''}
+          ${(!b.approved_at && !b.contract_completed_at && b.created_at) ? infoRow('등록일', fmt(b.created_at)) : ''}
           ${websiteUrlsHtml}
         </div>
 
@@ -151,15 +166,25 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
           </div>` : ''}
       </div>
 
-      ${hasSettlement ? `
       <div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div style="font-weight:700">정산 정보</div>
-          <button class="btn btn-outline" id="btn-edit-settlement" style="width:auto;padding:8px 16px;font-size:13px">
-            ✏️ 수정
-          </button>
+          <div style="font-weight:700">계약 및 정산 정보</div>
+          ${hasSettlement
+            ? `<button class="btn btn-outline" id="btn-edit-settlement" style="width:auto;padding:8px 16px;font-size:13px;margin-top:0">✏️ 수정</button>`
+            : `<button class="btn btn-primary" id="btn-edit-settlement" style="width:auto;padding:8px 16px;font-size:13px;margin-top:0">+ 입력</button>`}
         </div>
-        <p style="font-size:12px;color:var(--gray-400);margin-bottom:12px">계좌번호·주민등록번호는 암호화 저장됩니다.</p>
+        <p style="font-size:12px;color:var(--gray-500);margin-bottom:12px;line-height:1.6">
+          입점 계약 체결 및 정산 연결을 위해 필요한 정보를 요청합니다. 민감한 정보는 암호화 저장됩니다.
+        </p>
+        ${needsContractInfo ? `
+        <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">
+          <span style="font-size:18px;flex-shrink:0">📋</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;color:#c2410c;margin-bottom:3px">계약 정보 입력이 필요합니다</div>
+            <div style="font-size:12px;color:#ea580c;line-height:1.5">아래 [입력] 버튼을 눌러 계약 및 정산 정보를 입력해 주세요. 입력 완료 후 계약 절차가 진행됩니다.</div>
+          </div>
+        </div>` : ''}
+        ${hasSettlement ? `
         <div class="info-grid">
           ${settlementHtml}
         </div>
@@ -183,17 +208,8 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
                  </div>`
             ).join('')}
           </div>
-        </div>
-      </div>` : `
-      <div class="card" style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div style="font-weight:700">정산 정보</div>
-          <button class="btn btn-outline" id="btn-edit-settlement" style="width:auto;padding:8px 16px;font-size:13px">
-            + 입력
-          </button>
-        </div>
-        <p style="font-size:13px;color:var(--gray-400)">아직 정산 정보가 입력되지 않았습니다.</p>
-      </div>`}
+        </div>` : ''}
+      </div>
     </div>
   `;
 
@@ -216,6 +232,19 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     </p>
 
     <div class="form-group">
+      <label class="form-label">브랜드 대표 이미지 <span style="color:var(--gray-400);font-weight:400">(정사각형 500×500px 권장, JPG/PNG)</span></label>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        ${b.brand_photo_url
+          ? `<img id="edit-photo-preview-img" src="${esc(b.brand_photo_url)}" style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)">`
+          : `<div id="edit-photo-preview-img" style="width:64px;height:64px;border-radius:8px;background:var(--gray-100);display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:22px">🖼️</div>`}
+        <div style="flex:1">
+          <input id="edit-brand-photo" type="file" accept="image/jpeg,image/png"
+            style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">브랜드 간단 소개</label>
       <textarea id="edit-desc" class="form-input" rows="3" style="resize:vertical">${b.brand_desc || b.description || ''}</textarea>
     </div>
@@ -236,11 +265,31 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     </div>
 
     <div id="edit-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
-      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1">취소</button>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1;margin-top:0">취소</button>
       <button class="btn btn-primary" id="btn-edit-save" style="flex:2">저장</button>
     </div>
   `);
+
+  // 사진 미리보기
+  document.getElementById('edit-brand-photo').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const preview = document.getElementById('edit-photo-preview-img');
+      if (preview.tagName === 'IMG') {
+        preview.src = ev.target.result;
+      } else {
+        const img = document.createElement('img');
+        img.id = 'edit-photo-preview-img';
+        img.style.cssText = 'width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)';
+        img.src = ev.target.result;
+        preview.replaceWith(img);
+      }
+    };
+    reader.readAsDataURL(file);
+  });
 
   // URL 행 추가/삭제
   function attachRemoveListeners() {
@@ -280,11 +329,26 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     try {
       const websiteUrls = [...document.querySelectorAll('.edit-url-input')]
         .map(el => el.value.trim()).filter(Boolean);
-      await updateDoc(doc(db, 'brands', brandId), {
+
+      // 사진 업로드 (선택 시에만)
+      let photoUrl = b.brand_photo_url || '';
+      const photoFile = document.getElementById('edit-brand-photo').files[0];
+      if (photoFile) {
+        try {
+          const photoRef = ref(storage, `brands/${brandId}/photo_${Date.now()}_${photoFile.name}`);
+          await uploadBytes(photoRef, photoFile);
+          photoUrl = await getDownloadURL(photoRef);
+        } catch (_) { /* 사진 실패해도 나머지 저장 계속 */ }
+      }
+
+      const updates = {
         brand_desc:   document.getElementById('edit-desc').value.trim(),
         website_urls: websiteUrls,
         updated_at:   serverTimestamp(),
-      });
+      };
+      if (photoUrl) updates.brand_photo_url = photoUrl;
+
+      await updateDoc(doc(db, 'brands', brandId), updates);
       closeModal();
       await renderBrandInfo({ userDoc, container, showModal, closeModal });
     } catch (e) {
@@ -311,10 +375,12 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
   const isBiz = si.business_type === 'business';
   const isInd = si.business_type === 'individual';
 
+  const isFirstInput = !si.bank_name;
+
   showModal(`
-    <div class="modal-title">정산 정보 수정</div>
+    <div class="modal-title">${isFirstInput ? '계약 및 정산 정보 입력' : '계약 및 정산 정보 수정'}</div>
     <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">
-      계좌번호·주민등록번호는 AES-256 암호화되어 저장됩니다.
+      입점 계약 체결 및 정산 연결을 위해 필요한 정보를 요청합니다. 민감한 정보는 암호화 저장됩니다.
     </p>
 
     <div class="form-group">
@@ -365,6 +431,10 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     </div>
 
     <div class="form-group">
+      <label class="form-label">주소 <span style="color:var(--danger)">*</span></label>
+      <input id="edit-address" class="form-input" type="text" placeholder="사업장 또는 거주지 주소" value="${esc(si.address || '')}">
+    </div>
+    <div class="form-group">
       <label class="form-label">은행명 <span style="color:var(--danger)">*</span></label>
       <input id="edit-bank-name" class="form-input" type="text" placeholder="국민은행" value="${si.bank_name || ''}">
     </div>
@@ -387,8 +457,8 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     </div>` : ''}
 
     <div id="edit-settlement-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
-      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1">취소</button>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1;margin-top:0">취소</button>
       <button class="btn btn-primary" id="btn-settlement-save" style="flex:2">저장</button>
     </div>
   `);
@@ -473,6 +543,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     if (!document.getElementById('edit-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
     if (!document.getElementById('edit-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
     if (!document.getElementById('edit-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
+    if (!document.getElementById('edit-address').value.trim())        { errEl.textContent = '주소를 입력해 주세요.'; return; }
     const validationErrors = validateSettlementForm({
       bizType,
       bizNumber:      document.getElementById('edit-biz-reg-number')?.value || '',
@@ -496,6 +567,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       const updatedSettlement = {
         ...(si || {}),
         business_type:   bizType,
+        address:         document.getElementById('edit-address').value.trim(),
         bank_name:       document.getElementById('edit-bank-name').value.trim(),
         account_holder:  document.getElementById('edit-account-holder').value.trim(),
         account_number:  accountNumberEnc,
@@ -520,8 +592,13 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       if (si.bank_book_url) updatedSettlement.bank_book_url = si.bank_book_url;
       if (si.biz_reg_url)  updatedSettlement.biz_reg_url  = si.biz_reg_url;
 
+      const brandSnap = await getDoc(doc(db, 'brands', brandId));
+      const currentStatus = brandSnap.data()?.onboarding_status;
+      const statusUpdate = currentStatus === '계약 정보 입력 필요' ? { onboarding_status: '계약 전' } : {};
+
       await updateDoc(doc(db, 'brands', brandId), {
         settlement_info: updatedSettlement,
+        ...statusUpdate,
         updated_at: serverTimestamp(),
       });
 

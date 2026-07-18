@@ -366,6 +366,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 .badge-yellow { background: #fef9c3; color: #a16207; }
 .badge-red    { background: #fee2e2; color: #b91c1c; }
 .badge-gray   { background: var(--gray-100); color: var(--gray-600); }
+.badge-orange { background: #fff7ed; color: #c2410c; }
 
 /* ── 심사중 화면 ── */
 .pending-wrap { max-width: 560px; margin: 60px auto; text-align: center; }
@@ -489,6 +490,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--gray-50); }
+.app-detail-card:hover { background: var(--gray-50); border-color: var(--gray-300); }
 
 /* ── 사이드바 브랜드 헤더 (클릭 → 스위처 팝업) ── */
 .sidebar-brand-header {

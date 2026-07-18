@@ -105,17 +105,13 @@ async function markBadgeRead(page) {
     // 현재 시각을 마지막 방문 타임스탬프로 저장
     _saveReadTs('notices', Date.now());
 
-  } else if (page === 'pending') {
-    const [appsSnap, joinSnap] = await Promise.all([
-      getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
-      getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
-    ]);
-    const seen = _getReadIds('pending');
-    [...appsSnap.docs, ...joinSnap.docs].forEach(d => {
-      const s = d.data().status;
-      if (s === STATUS.APPROVED || s === STATUS.REJECTED) seen.add(d.id);
+  } else if (page === 'brand-list') {
+    const { apps: myApps, joins: myJoins } = await fetchMyApplications().catch(() => ({ apps: [], joins: [] }));
+    const seen = _getReadIds('brand-list');
+    [...myApps, ...myJoins].forEach(item => {
+      if (item.status === STATUS.APPROVED || item.status === STATUS.REJECTED) seen.add(item.id);
     });
-    _saveReadIds('pending', seen);
+    _saveReadIds('brand-list', seen);
 
   } else if (page === 'inquiries' && brandId) {
     const snap = await getDocs(query(collection(db, 'inquiries'), where('brand_id', '==', brandId)));
@@ -155,6 +151,15 @@ async function computeBadges() {
     }).length;
 
     if (isBrand && brandId) {
+      // 브랜드 정보: 계약 정보 입력 필요 상태에서 미입력이면 배지
+      try {
+        const brandSnap = await getDoc(doc(db, 'brands', brandId));
+        const bd = brandSnap.data() || {};
+        const si = bd.settlement_info || {};
+        const needsContract = bd.onboarding_status === '계약 정보 입력 필요' && !si.bank_name;
+        if (needsContract) badges['brand-info'] = 1;
+      } catch (_) {}
+
       // 문의하기: 답변완료 중 아직 안 본 것
       const seenInq = _getReadIds('inquiries');
       const inqSnap = await getDocs(query(collection(db, 'inquiries'), where('brand_id', '==', brandId)));
@@ -176,15 +181,11 @@ async function computeBadges() {
       }).length;
 
     } else if (!isBrand) {
-      // 신청현황: 승인/거절 결과 중 아직 안 본 것
-      const seenApps = _getReadIds('pending');
-      const [appsSnap, joinSnap] = await Promise.all([
-        getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
-        getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
-      ]);
-      badges.pending = [...appsSnap.docs, ...joinSnap.docs].filter(d => {
-        const s = d.data().status;
-        return (s === STATUS.APPROVED || s === STATUS.REJECTED) && !seenApps.has(d.id);
+      // 담당 브랜드 목록: 거절 결과 중 아직 안 본 것
+      const seenApps = _getReadIds('brand-list');
+      const { apps: myApps, joins: myJoins } = await fetchMyApplications();
+      badges['brand-list'] = [...myApps, ...myJoins].filter(item => {
+        return item.status === STATUS.REJECTED && !seenApps.has(item.id);
       }).length;
     }
   } catch (_) { /* 배지 계산 실패는 조용히 무시 */ }
@@ -398,7 +399,7 @@ async function syncPersonDoc(user, userData) {
 }
 
 // ── 앱 렌더링 ──
-function renderApp(memberStatus, isNewLink = false) {
+async function renderApp(memberStatus, isNewLink = false) {
   // brand_ids(또는 brand_id)가 실제로 비어있으면 GENERAL로 강제 조정
   if (memberStatus === STATUS.BRAND) {
     const ids = getUserBrandIds(currentUserDoc);
@@ -426,7 +427,9 @@ function renderApp(memberStatus, isNewLink = false) {
   } else if (memberStatus === STATUS.BRAND) {
     renderPage('dashboard');
   } else {
-    renderPage('member-onboarding');
+    // GENERAL: 신청 내역 있으면 담당 브랜드 목록, 없으면 새 브랜드 담당 등록 페이지
+    const { apps: myApps, joins: myJoins } = await fetchMyApplications().catch(() => ({ apps: [], joins: [] }));
+    renderPage((myApps.length > 0 || myJoins.length > 0) ? 'brand-list' : 'member-onboarding');
   }
   showApp();
   // 앱 진입 시 초기 배지 계산 (백그라운드)
@@ -638,7 +641,6 @@ const PAGE_TITLES = {
   'branch-select':     '새 브랜드 담당 합류/등록',
   'member-onboarding': '새 브랜드 담당 합류/등록',
   'brand-list':        '담당 브랜드 목록',
-  pending:             '신청 현황',
   welcome:             '환영합니다',
   'brand-info':        '브랜드 정보',
   persons:             '담당자 관리',
@@ -678,7 +680,7 @@ async function renderPage(page) {
     case 'member-onboarding': await renderMemberOnboardingPage(container); break;
     case 'brand-list':        await renderBrandListPage(container); break;
     case 'faq-page':          await renderFaqPage(container); break;
-    case 'pending':       await renderPendingFull(container); break;
+    case 'pending':       await renderBrandListPage(container); break;
     case 'welcome':       container.innerHTML = renderWelcome(); break;
     case 'brand-info':    await renderBrandInfo(ctx()); break;
     case 'persons':       await renderPersons(ctx()); break;
@@ -796,11 +798,11 @@ function renderBranchSelect(container) {
   $('bc-new').addEventListener('click',  openApplyModal);
 }
 
-// ── 역할/직책 선택지 ──
-const ROLE_OPTIONS = ['대표', '운영 담당자', 'MD', '마케팅 담당자', '영업 담당자', '기타'];
+// ── 역할 선택지 ──
+const ROLE_OPTIONS = ['주관리자', '부관리자'];
 function roleSelectHTML(id, selected = '') {
   return `<select id="${id}" class="form-input form-select">
-    <option value="">선택하세요</option>
+    <option value="">역할 선택</option>
     ${ROLE_OPTIONS.map(r => `<option value="${r}"${selected === r ? ' selected' : ''}>${r}</option>`).join('')}
   </select>`;
 }
@@ -831,8 +833,9 @@ async function openJoinModal() {
       <input id="join-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">역할/직책 <span style="color:var(--danger)">*</span></label>
+      <label class="form-label">역할 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('join-role')}
+      <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
     <div id="join-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-join-submit" style="margin-top:8px">신청하기</button>
@@ -915,7 +918,7 @@ async function openJoinModal() {
     if (!selectedBrandId)  { errEl.textContent = '브랜드를 검색해서 선택해 주세요.'; return; }
     if (!phone)            { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail)     { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
-    if (!role)             { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
+    if (!role)             { errEl.textContent = '역할을 선택해 주세요.'; return; }
 
     $('btn-join-submit').disabled = true;
     $('btn-join-submit').textContent = '신청 중...';
@@ -940,7 +943,7 @@ async function openJoinModal() {
     });
 
     closeModal();
-    renderPage('pending');
+    renderPage('brand-list');
   });
 }
 
@@ -989,72 +992,9 @@ async function openApplyModal() {
       <input id="app-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">역할/직책 <span style="color:var(--danger)">*</span></label>
+      <label class="form-label">역할 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('app-role')}
-    </div>
-
-    <div id="settlement-section">
-      <div style="${sectionStyle}">정산 정보</div>
-
-      <div class="form-group">
-        <label class="form-label">사업자 여부 <span style="color:var(--danger)">*</span></label>
-        <div style="display:flex;gap:12px;margin-top:6px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-            <input type="radio" name="app-biz-type" value="business" id="app-biz-business"> 사업자
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-            <input type="radio" name="app-biz-type" value="individual" id="app-biz-individual"> 개인(사업자없음)
-          </label>
-        </div>
-      </div>
-
-      <div id="business-fields" style="display:none">
-        <div class="form-group">
-          <label class="form-label">사업자등록번호</label>
-          <div style="display:flex;gap:8px">
-            <input id="app-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000" style="flex:1">
-            <button type="button" id="btn-verify-biz"
-              style="white-space:nowrap;padding:0 14px;background:var(--gray-100);border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:var(--gray-700)">
-              사업자 확인
-            </button>
-          </div>
-          <div id="app-biz-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">과세 유형</label>
-          <select id="app-taxation-type" class="form-input form-select">
-            <option value="">선택하세요</option>
-            <option value="일반">일반과세</option>
-            <option value="간이">간이과세</option>
-          </select>
-        </div>
-      </div>
-
-      <div id="individual-fields" style="display:none">
-        <div class="form-group">
-          <label class="form-label">주민등록번호</label>
-          <input id="app-resident-number" class="form-input" type="password"
-            placeholder="000000-0000000" maxlength="14" autocomplete="off">
-          <div id="app-resident-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
-          <p style="margin-top:6px;font-size:11px;color:var(--gray-500);line-height:1.5;background:var(--gray-50);padding:8px 10px;border-radius:6px">
-            주민등록번호는 소득세법 제127조에 따른 원천징수 신고 목적으로만 수집됩니다.<br>
-            AES-256 암호화 저장, 세무법정 보관 기간(5년) 이후 파기됩니다.
-          </p>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">은행명 <span style="color:var(--danger)">*</span></label>
-        <input id="app-bank-name" class="form-input" type="text" placeholder="국민은행">
-      </div>
-      <div class="form-group">
-        <label class="form-label">예금주명 <span style="color:var(--danger)">*</span></label>
-        <input id="app-account-holder" class="form-input" type="text" placeholder="홍길동">
-      </div>
-      <div class="form-group">
-        <label class="form-label">계좌번호 <span style="color:var(--danger)">*</span></label>
-        <input id="app-account-number" class="form-input" type="text" placeholder="000000-00-000000">
-      </div>
+      <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
 
     <div id="app-error" class="form-error"></div>
@@ -1096,76 +1036,6 @@ async function openApplyModal() {
     reader.readAsDataURL(file);
   });
 
-  // 사업자 여부 변경 → 사업자/개인 필드 토글
-  document.querySelectorAll('input[name="app-biz-type"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      const isBiz = document.getElementById('app-biz-business').checked;
-      $('business-fields').style.display = isBiz ? 'block' : 'none';
-      $('individual-fields').style.display = isBiz ? 'none' : 'block';
-    });
-  });
-
-  // 사업자등록번호 자동 포맷 + 형식 힌트
-  $('app-biz-reg-number').addEventListener('input', () => {
-    const el = $('app-biz-reg-number');
-    el.value = formatBizRegNumber(el.value);
-    const hint = $('app-biz-hint');
-    const digits = el.value.replace(/-/g, '');
-    if (digits.length === 10) {
-      if (validateBizRegNumber(digits)) {
-        hint.style.color = 'var(--success, #16a34a)';
-        hint.textContent = '형식 확인됨 — "사업자 확인" 버튼으로 실제 조회하세요.';
-      } else {
-        hint.style.color = 'var(--danger)';
-        hint.textContent = '올바르지 않은 사업자등록번호입니다.';
-      }
-    } else {
-      hint.textContent = '';
-    }
-  });
-
-  // 사업자 확인 버튼 (국세청 API)
-  $('btn-verify-biz').addEventListener('click', async () => {
-    const el = $('app-biz-reg-number');
-    const hint = $('app-biz-hint');
-    const digits = (el.value || '').replace(/-/g, '');
-    if (digits.length !== 10 || !validateBizRegNumber(digits)) {
-      hint.style.color = 'var(--danger)';
-      hint.textContent = '사업자등록번호를 먼저 올바르게 입력하세요.';
-      return;
-    }
-    $('btn-verify-biz').disabled = true;
-    hint.style.color = 'var(--gray-500)';
-    hint.textContent = '조회 중...';
-    try {
-      const r = await verifyBizNumber(digits);
-      const colors = { active: 'var(--success, #16a34a)', dormant: 'var(--warning, #b45309)', closed: 'var(--danger)' };
-      const icons  = { active: '✓', dormant: '⚠', closed: '✗' };
-      hint.style.color = colors[r.status] || 'var(--gray-600)';
-      hint.textContent = (icons[r.status] || '?') + ' ' + r.label;
-    } catch (e) {
-      hint.style.color = 'var(--danger)';
-      hint.textContent = '조회 오류: ' + e.message;
-    } finally {
-      $('btn-verify-biz').disabled = false;
-    }
-  });
-
-  // 주민등록번호 자동 하이픈 + 실시간 검증
-  $('app-resident-number').addEventListener('input', () => {
-    const el = $('app-resident-number');
-    el.value = formatResidentNumber(el.value);
-    const hint = $('app-resident-hint');
-    const digits = el.value.replace(/-/g, '');
-    if (digits.length === 13) {
-      const r = validateResidentNumber(el.value);
-      hint.style.color = r.ok ? 'var(--success, #16a34a)' : 'var(--danger)';
-      hint.textContent = r.ok ? '✓ 형식이 올바릅니다.' : '✗ ' + r.msg;
-    } else {
-      hint.textContent = '';
-    }
-  });
-
   $('btn-app-submit').addEventListener('click', async () => {
     const brandName    = $('app-brand-name').value.trim();
     const phone        = $('app-phone').value.trim();
@@ -1176,19 +1046,7 @@ async function openApplyModal() {
     if (!brandName)    { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
     if (!phone)        { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail) { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
-    if (!role)         { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
-
-    const bizType = document.querySelector('input[name="app-biz-type"]:checked')?.value;
-    if (!bizType) { errEl.textContent = '사업자 여부를 선택해 주세요.'; return; }
-    if (!$('app-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
-    if (!$('app-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
-    if (!$('app-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
-    const validationErrors = validateSettlementForm({
-      bizType,
-      bizNumber:      $('app-biz-reg-number')?.value || '',
-      residentNumber: $('app-resident-number')?.value || '',
-    });
-    if (validationErrors.length) { errEl.textContent = validationErrors[0]; return; }
+    if (!role)         { errEl.textContent = '역할을 선택해 주세요.'; return; }
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
@@ -1209,29 +1067,6 @@ async function openApplyModal() {
       const websiteUrls = [...document.querySelectorAll('.app-url-input')]
         .map(el => el.value.trim()).filter(Boolean);
 
-      // 정산 정보 구성
-      const isBiz = bizType === 'business';
-      const accountNumberRaw = $('app-account-number').value.trim();
-      const residentNumberRaw = !isBiz ? ($('app-resident-number').value.trim()) : '';
-
-      const [accountNumberEnc, residentNumberEnc] = await Promise.all([
-        encryptValue(accountNumberRaw),
-        encryptValue(residentNumberRaw),
-      ]);
-
-      const settlementInfo = {
-        business_type:  bizType,
-        bank_name:      $('app-bank-name').value.trim(),
-        account_holder: $('app-account-holder').value.trim(),
-        account_number: accountNumberEnc,
-        ...(isBiz ? {
-          business_reg_number: $('app-biz-reg-number').value.trim(),
-          taxation_type:       $('app-taxation-type').value,
-        } : {
-          resident_number: residentNumberEnc,
-        }),
-      };
-
       await addDoc(collection(db, 'brand_applications'), {
         applicant_uid:           currentUser.uid,
         applicant_email:         normalizeEmail(currentUser.email),
@@ -1243,7 +1078,6 @@ async function openApplyModal() {
         brand_description:       $('app-brand-desc').value.trim(),
         website_urls:            websiteUrls,
         brand_photo_url:         photoUrl,
-        settlement_info:         settlementInfo,
         status:                  STATUS.SUBMITTED,
         submitted_at:            serverTimestamp(),
       });
@@ -1264,18 +1098,97 @@ async function openApplyModal() {
   });
 }
 
+// ── 신청 상세 모달 ──
+function showApplicationDetail(item) {
+  const fmt = ts => {
+    if (!ts) return '-';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+  };
+  const isNew = item.type === 'apply' || item.type === 'new';
+  const brandLabel = item.brand_name || item.target_brand_name || item.target_brand_id || '-';
+  const statusColors = { '제출됨': 'badge-yellow', '승인': 'badge-green', '거절': 'badge-red' };
+  const statusBadge = s => `<span class="badge ${statusColors[s] || 'badge-gray'}">${s || '-'}</span>`;
+  const row = (label, value) => (value != null && value !== '')
+    ? `<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--gray-100)">
+         <div style="flex:0 0 110px;font-size:12px;color:var(--gray-500);font-weight:600;padding-top:1px">${label}</div>
+         <div style="flex:1;font-size:13px;word-break:break-all">${value}</div>
+       </div>`
+    : '';
+  const urlsHtml = Array.isArray(item.website_urls) && item.website_urls.length
+    ? item.website_urls.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--primary);display:block;margin-bottom:2px">${esc(u)}</a>`).join('')
+    : '';
+  const sectionHead = label => `<div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:.06em;text-transform:uppercase;margin:16px 0 4px">${label}</div>`;
+  const rejReason = item.rejection_reason || item.reject_reason;
+
+  showModal(`
+    <div class="modal-title">${isNew ? '새 브랜드 등록' : '브랜드 합류'} 신청 상세</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${statusBadge(item.status)}
+      <span style="font-size:15px;font-weight:700">${esc(brandLabel)}</span>
+    </div>
+    ${item.brand_photo_url ? `<img src="${esc(item.brand_photo_url)}" style="max-width:90px;max-height:90px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200);margin-bottom:12px">` : ''}
+    ${sectionHead('기본 정보')}
+    ${row('신청 유형', isNew ? '새 브랜드 등록' : '기존 브랜드 합류')}
+    ${row('브랜드명', esc(brandLabel))}
+    ${isNew ? row('브랜드 소개', esc(item.brand_description || '')) : ''}
+    ${isNew && urlsHtml ? row('관련 사이트', urlsHtml) : ''}
+    ${row('신청일', fmt(item.submitted_at))}
+    ${sectionHead('담당자 정보')}
+    ${row('역할', esc(item.applicant_role || ''))}
+    ${row('연락처', esc(item.applicant_phone || ''))}
+    ${row('이메일', esc(item.applicant_contact_email || ''))}
+    ${rejReason ? `<div style="margin-top:12px;padding:10px 12px;background:#fee2e2;border-radius:8px;font-size:13px;color:#b91c1c"><strong>거절 사유:</strong> ${esc(rejReason)}</div>` : ''}
+    <button class="btn btn-outline" id="btn-detail-close" style="margin-top:16px">닫기</button>
+  `);
+  document.getElementById('btn-detail-close').addEventListener('click', closeModal);
+}
+
+// ── 내 신청 목록 조회 (uid + email 양쪽 조회 후 중복 제거) ──
+// 일부 문서는 applicant_uid 없이 applicant_email만 저장됐을 수 있어 양쪽 쿼리로 보완.
+async function fetchMyApplications() {
+  const uid   = currentUser.uid;
+  const email = normalizeEmail(currentUser.email || '');
+  const col   = n => collection(db, n);
+  const byUid   = n => getDocs(query(col(n), where('applicant_uid',   '==', uid)));
+  const byEmail = n => getDocs(query(col(n), where('applicant_email', '==', email)));
+
+  const [auSnap, aeSnap, juSnap, jeSnap] = await Promise.all([
+    byUid('brand_applications'),  byEmail('brand_applications'),
+    byUid('brand_join_requests'), byEmail('brand_join_requests'),
+  ]);
+
+  function merge(uSnap, eSnap, type) {
+    const seen = new Set();
+    return [...uSnap.docs, ...eSnap.docs]
+      .filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true; })
+      .map(d => ({ id: d.id, type, ...d.data() }));
+  }
+
+  return {
+    apps:  merge(auSnap, aeSnap, 'new'),
+    joins: merge(juSnap, jeSnap, 'join'),
+  };
+}
+
+// ── 신청 목록 공통 필터 ──
+// 승인된 항목은 어떤 경우든 처리 완료로 간주하여 목록에서 제외.
+// (어드민의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
+function filterDeletedBrandApps(apps, joins) {
+  return Promise.resolve(
+    [...apps, ...joins].filter(item => item.status !== STATUS.APPROVED)
+  );
+}
+
 // ── 심사중 화면 (내 신청 현황 표시) ──
 async function renderPendingFull(container) {
-  const uid = currentUser.uid;
   container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
 
-  const appsQ = query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid));
-  const joinQ = query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid));
-  const [appsSnap, joinSnap] = await Promise.all([getDocs(appsQ), getDocs(joinQ)]);
-
-  const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'apply', ...d.data() }));
-  const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join',  ...d.data() }));
-  const all   = [...apps, ...joins].sort((a, b) => {
+  const { apps: rawApps, joins: rawJoins } = await fetchMyApplications();
+  const apps  = rawApps.map(a => ({ ...a, type: 'apply' }));
+  const joins = rawJoins;
+  const filtered = await filterDeletedBrandApps(apps, joins);
+  const all   = filtered.sort((a, b) => {
     const ta = a.submitted_at?.toMillis?.() || 0;
     const tb = b.submitted_at?.toMillis?.() || 0;
     return tb - ta;
@@ -1340,6 +1253,7 @@ async function renderPendingFull(container) {
       const card = document.createElement('div');
       card.className = 'card';
       card.style.marginBottom = '12px';
+      card.style.cursor = 'pointer';
 
       const canCancel = item.status === STATUS.SUBMITTED;
       const brandLabel = item.brand_name || item.target_brand_name || item.target_brand_id || '-';
@@ -1358,9 +1272,12 @@ async function renderPendingFull(container) {
           ${canCancel ? `<button class="btn-cancel-join" style="margin-left:12px;flex-shrink:0;width:auto;padding:6px 14px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">신청 취소</button>` : ''}
         </div>`;
 
+      card.addEventListener('click', () => showApplicationDetail(item));
+
       if (canCancel) {
         const collName = item.type === 'join' ? 'brand_join_requests' : 'brand_applications';
-        card.querySelector('.btn-cancel-join').addEventListener('click', async () => {
+        card.querySelector('.btn-cancel-join').addEventListener('click', async e => {
+          e.stopPropagation();
           if (!confirm(`'${brandLabel}' 신청을 취소하시겠습니까?`)) return;
           await deleteDoc(doc(db, collName, item.id));
           all.splice(all.indexOf(item), 1);
@@ -1638,13 +1555,15 @@ async function renderBrandListPage(container) {
 
       // onboarding_status → 배지 변환
       const ONBOARDING_BADGE = {
-        '미계약':   { cls: 'badge-gray',   label: '미계약' },
-        '심사중':   { cls: 'badge-yellow', label: '심사중' },
-        '계약완료': { cls: 'badge-yellow', label: '계약완료' },
-        '승인':     { cls: 'badge-green',  label: '승인' },
-        '입점확정': { cls: 'badge-green',  label: '입점확정' },
-        '거절':     { cls: 'badge-red',    label: '거절' },
-        '종료':     { cls: 'badge-red',    label: '종료' },
+        '미계약':             { cls: 'badge-gray',   label: '계약 전' },
+        '계약 전':            { cls: 'badge-gray',   label: '계약 전' },
+        '계약 정보 입력 필요': { cls: 'badge-orange', label: '계약 정보 입력 필요' },
+        '심사중':             { cls: 'badge-yellow', label: '심사중' },
+        '계약완료':           { cls: 'badge-yellow', label: '계약완료' },
+        '승인':               { cls: 'badge-green',  label: '승인' },
+        '입점확정':           { cls: 'badge-green',  label: '입점확정' },
+        '거절':               { cls: 'badge-red',    label: '거절' },
+        '종료':               { cls: 'badge-red',    label: '종료' },
       };
       function statusBadgeBrand(status) {
         const m = ONBOARDING_BADGE[status];
@@ -1722,6 +1641,78 @@ async function renderBrandListPage(container) {
       }
       bindRows();
 
+      // 신청 중인 브랜드 (미승인) 목록도 하단에 표시
+      try {
+        const { apps: pendingApps, joins: pendingJoins } = await fetchMyApplications();
+        const pendingAll = [...pendingApps, ...pendingJoins]
+          .filter(i => i.status !== STATUS.APPROVED)
+          .sort((a, b) => (b.submitted_at?.toMillis?.() || 0) - (a.submitted_at?.toMillis?.() || 0));
+
+        if (pendingAll.length > 0) {
+          const fmtPTs = ts => {
+            if (!ts) return '-';
+            const d = ts.toDate ? ts.toDate() : new Date(ts);
+            return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+          };
+          const pendingStatusBadge = s => {
+            const map = { '제출됨': ['badge-yellow','심사중'], '거절': ['badge-red','거절'] };
+            const [cls, label] = map[s] || ['badge-gray', s || '-'];
+            return `<span class="badge ${cls}">${label}</span>`;
+          };
+
+          const pendingSection = document.createElement('div');
+          pendingSection.style.marginTop = '28px';
+          pendingSection.innerHTML = `
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:12px">신청 중인 브랜드</h3>
+            <div id="pending-apps-list"></div>`;
+          container.querySelector('div[style*="max-width"]').appendChild(pendingSection);
+
+          const pendingList = document.getElementById('pending-apps-list');
+          pendingAll.forEach((item, i) => {
+            const card = document.createElement('div');
+            card.className = 'card app-detail-card';
+            card.style.cssText = 'margin-bottom:10px;cursor:pointer';
+            card.dataset.idx = i;
+            const canCancel = item.status === STATUS.SUBMITTED;
+            card.innerHTML = `
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+                    <span style="font-size:12px;padding:2px 8px;border-radius:20px;background:var(--gray-100);color:var(--gray-600);font-weight:600">
+                      ${item.type === 'new' ? '새 브랜드 등록' : '기존 브랜드 합류'}
+                    </span>
+                    ${pendingStatusBadge(item.status)}
+                  </div>
+                  <div style="font-size:15px;font-weight:700;margin-bottom:4px">
+                    ${esc(item.brand_name || item.target_brand_name || item.target_brand_id || '(브랜드명 없음)')}
+                  </div>
+                  <div style="font-size:12px;color:var(--gray-400)">신청일: ${fmtPTs(item.submitted_at)}</div>
+                  ${item.status === '거절' && item.reject_reason
+                    ? `<div style="margin-top:8px;padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#b91c1c">거절 사유: ${esc(item.reject_reason)}</div>` : ''}
+                </div>
+                ${canCancel ? `<button class="btn-cancel-pending" data-id="${item.id}" data-type="${item.type}"
+                  style="flex-shrink:0;padding:6px 14px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+                  신청 취소
+                </button>` : ''}
+              </div>`;
+            card.addEventListener('click', () => showApplicationDetail(item));
+            if (canCancel) {
+              card.querySelector('.btn-cancel-pending').addEventListener('click', async e => {
+                e.stopPropagation();
+                if (!confirm('신청을 취소하시겠습니까?')) return;
+                const colName = item.type === 'new' ? 'brand_applications' : 'brand_join_requests';
+                try {
+                  await deleteDoc(doc(db, colName, item.id));
+                  card.remove();
+                  if (pendingList.children.length === 0) pendingSection.remove();
+                } catch (_) { alert('취소 중 오류가 발생했습니다.'); }
+              });
+            }
+            pendingList.appendChild(card);
+          });
+        }
+      } catch (_) { /* 신청 목록 로드 실패는 무시 */ }
+
     } catch (e) {
       container.innerHTML = '<div class="card" style="color:var(--danger);padding:24px">데이터를 불러오지 못했습니다.</div>';
     }
@@ -1730,16 +1721,10 @@ async function renderBrandListPage(container) {
 
   // 일반 회원: 신청 현황 표시
   try {
-    const [appsSnap, joinSnap] = await Promise.all([
-      getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
-      getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
-    ]);
-    // 승인된 신청은 GENERAL 뷰에서 제외
-    // (승인됐다면 브랜드 담당자가 되어야 하는데 여전히 GENERAL이면 브랜드가 삭제된 것)
-    const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }))
-                             .filter(item => item.status !== STATUS.APPROVED);
-    const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }))
-                             .filter(item => item.status !== STATUS.APPROVED);
+    const { apps: appsRaw, joins: joinsRaw } = await fetchMyApplications();
+    const filteredAll = await filterDeletedBrandApps(appsRaw, joinsRaw);
+    const apps  = filteredAll.filter(i => i.type === 'new');
+    const joins = filteredAll.filter(i => i.type === 'join');
 
     const all   = [...apps, ...joins].sort((a, b) => {
       const ta = a.submitted_at?.toMillis?.() || 0;
@@ -1775,8 +1760,8 @@ async function renderBrandListPage(container) {
                <p style="font-size:15px;font-weight:600;margin-bottom:8px">아직 신청 내역이 없습니다.</p>
                <p style="font-size:13px">위 버튼을 눌러 브랜드 담당자로 합류하거나 새 브랜드를 등록하세요.</p>
              </div>`
-          : all.map(item => `
-              <div class="card" style="margin-bottom:10px">
+          : all.map((item, idx) => `
+              <div class="card app-detail-card" data-idx="${idx}" style="margin-bottom:10px;cursor:pointer">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
                   <div style="flex:1;min-width:0">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
@@ -1805,8 +1790,13 @@ async function renderBrandListPage(container) {
 
     document.getElementById('btn-add-brand').addEventListener('click', () => renderPage('member-onboarding'));
 
+    container.querySelectorAll('.app-detail-card').forEach(card => {
+      card.addEventListener('click', () => showApplicationDetail(all[parseInt(card.dataset.idx)]));
+    });
+
     container.querySelectorAll('.btn-cancel-app').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
         if (!confirm('신청을 취소하시겠습니까?')) return;
         const colName = btn.dataset.type === 'new' ? 'brand_applications' : 'brand_join_requests';
         try {

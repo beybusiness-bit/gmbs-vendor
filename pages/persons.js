@@ -1,5 +1,5 @@
 import {
-  db, collection, getDocs, doc, addDoc, updateDoc, deleteDoc, setDoc, serverTimestamp,
+  db, collection, getDocs, query, where, doc, addDoc, updateDoc, deleteDoc, setDoc, serverTimestamp,
 } from '../firebase-init.js';
 
 export async function renderPersons({ userDoc, user, container, showModal, closeModal }) {
@@ -15,6 +15,28 @@ export async function renderPersons({ userDoc, user, container, showModal, close
   const snap = await getDocs(collection(db, 'brands', brandId, 'persons'));
   const persons = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   const myEmail = (user.email || '').toLowerCase().trim();
+
+  // 현재 로그인 계정이 persons 서브컬렉션에 없으면 자동 추가
+  const alreadyIn = persons.some(p =>
+    (p.login_google_email || '').toLowerCase() === myEmail ||
+    p.id === userDoc?.person_id
+  );
+  if (!alreadyIn) {
+    try {
+      const hasMain = persons.some(p => p.role === '주관리자' && p.active !== false);
+      const newData = {
+        name:               user.displayName || userDoc?.name || '',
+        role:               hasMain ? '부관리자' : '주관리자',
+        phone:              userDoc?.phone || '',
+        contact_email:      userDoc?.contact_email || user.email || '',
+        login_google_email: myEmail,
+        created_at:         serverTimestamp(),
+        updated_at:         serverTimestamp(),
+      };
+      const newRef = await addDoc(collection(db, 'brands', brandId, 'persons'), newData);
+      persons.unshift({ id: newRef.id, ...newData });
+    } catch (_) { /* 추가 실패 시 목록만 표시 */ }
+  }
 
   container.innerHTML = `
     <div style="max-width:720px">
@@ -68,7 +90,11 @@ function personCard(p, myEmail, myPersonId) {
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
             <span style="font-size:16px;font-weight:700">${p.name || '-'}</span>
             ${isMe ? '<span class="badge badge-blue">나</span>' : ''}
-            ${p.role ? `<span class="badge badge-gray">${p.role}</span>` : ''}
+            ${p.role === '주관리자'
+              ? `<span style="background:#8c52ff;color:#fff;font-weight:700;padding:2px 10px;border-radius:12px;font-size:12px">주관리자</span>`
+              : p.role === '부관리자'
+              ? `<span style="background:#eff6ff;color:#2563eb;font-weight:600;padding:2px 10px;border-radius:12px;font-size:12px">부관리자</span>`
+              : p.role ? `<span class="badge badge-gray">${p.role}</span>` : ''}
           </div>
           <div style="font-size:13px;color:var(--gray-600);display:grid;gap:3px">
             ${p.phone ? `<span>📞 ${p.phone}</span>` : ''}
@@ -132,13 +158,14 @@ async function openPersonModal({ brandId, person, showModal, closeModal, contain
       <input id="p-name" class="form-input" type="text" value="${isEdit ? (person.name||'') : ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">역할/직책</label>
+      <label class="form-label">역할 <span style="color:var(--danger)">*</span></label>
       <select id="p-role" class="form-input form-select">
-        <option value="">선택하세요</option>
-        ${['대표', '운영 담당자', 'MD', '마케팅 담당자', '영업 담당자', '기타'].map(r =>
+        <option value="">역할 선택</option>
+        ${['주관리자', '부관리자'].map(r =>
           `<option value="${r}"${(isEdit ? person.role : '') === r ? ' selected' : ''}>${r}</option>`
         ).join('')}
       </select>
+      <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
     <div class="form-group">
       <label class="form-label">연락처</label>
@@ -176,6 +203,26 @@ async function openPersonModal({ brandId, person, showModal, closeModal, contain
 
     if (!name) { errEl.textContent = '이름을 입력해 주세요.'; return; }
 
+    const role = document.getElementById('p-role').value;
+    if (!role) { errEl.textContent = '역할을 선택해 주세요.'; return; }
+
+    if (role === '주관리자') {
+      try {
+        const mainSnap = await getDocs(query(
+          collection(db, 'brands', brandId, 'persons'),
+          where('role', '==', '주관리자'),
+        ));
+        const others = mainSnap.docs.filter(d => d.data().active !== false && (!isEdit || d.id !== person.id));
+        if (others.length > 0) {
+          errEl.textContent = '이미 주관리자가 있습니다. 기존 주관리자를 부관리자로 변경한 후 다시 시도하세요.';
+          return;
+        }
+      } catch (e) {
+        errEl.textContent = '역할 확인 중 오류가 발생했습니다.';
+        return;
+      }
+    }
+
     if (!isEdit) {
       const loginEmail  = (document.getElementById('p-login-email').value || '').toLowerCase().trim();
       const loginEmail2 = (document.getElementById('p-login-email2').value || '').toLowerCase().trim();
@@ -189,7 +236,7 @@ async function openPersonModal({ brandId, person, showModal, closeModal, contain
     try {
       const data = {
         name,
-        role:          document.getElementById('p-role').value.trim(),
+        role,
         phone:         document.getElementById('p-phone').value.trim(),
         contact_email: document.getElementById('p-contact-email').value.trim(),
         updated_at:    serverTimestamp(),
