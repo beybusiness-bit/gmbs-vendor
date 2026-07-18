@@ -1,7 +1,7 @@
 import {
   auth, db, storage, googleProvider,
   signInWithPopup, signOut, onAuthStateChanged,
-  doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
+  doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
   ref, uploadBytes, getDownloadURL,
 } from './firebase-init.js';
 import { encryptValue } from './utils/encryption.js';
@@ -332,13 +332,6 @@ onAuthStateChanged(auth, async (user) => {
         }
       } catch (_) { /* 초대 확인 실패는 무시 */ }
 
-      // 브랜드 담당자인데 brand_id가 null인 경우 안내 화면 표시
-      // (브랜드 문서 존재 여부는 각 페이지에서 처리 — 로그인 지연 방지)
-      if (currentUserDoc.member_status === STATUS.BRAND && !currentUserDoc.brand_id) {
-        showNoBrandState();
-        return;
-      }
-
       syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
       renderApp(currentUserDoc.member_status || STATUS.GENERAL);
     }
@@ -406,17 +399,34 @@ async function syncPersonDoc(user, userData) {
 
 // ── 앱 렌더링 ──
 function renderApp(memberStatus, isNewLink = false) {
+  // brand_ids(또는 brand_id)가 실제로 비어있으면 GENERAL로 강제 조정
   if (memberStatus === STATUS.BRAND) {
     const ids = getUserBrandIds(currentUserDoc);
-    setActiveBrand(ids[0] || null);
+    if (ids.length === 0) {
+      memberStatus = STATUS.GENERAL;
+    } else {
+      setActiveBrand(ids[0] || null);
+    }
   }
   updateSidebarUser(memberStatus);
-  if (isNewLink) {
+
+  // 새로고침 시 이전 페이지 복원 (해시가 있고, 해당 계정 권한에 맞는 페이지일 때)
+  const hashPage = location.hash.replace('#', '');
+  const BRAND_ONLY_PAGES = new Set([
+    'dashboard', 'brand-info', 'persons', 'contracts',
+    'products', 'inventory', 'settlements', 'customer-inquiries',
+  ]);
+  const canRestore = hashPage && PAGE_TITLES[hashPage] &&
+    (memberStatus === STATUS.BRAND || !BRAND_ONLY_PAGES.has(hashPage));
+
+  if (isNewLink && memberStatus === STATUS.BRAND) {
     renderPage('welcome');
+  } else if (canRestore) {
+    renderPage(hashPage);
   } else if (memberStatus === STATUS.BRAND) {
     renderPage('dashboard');
   } else {
-    checkApplicationStatus();
+    renderPage('member-onboarding');
   }
   showApp();
   // 앱 진입 시 초기 배지 계산 (백그라운드)
@@ -488,6 +498,12 @@ async function renderSidebar(memberStatus) {
     const dataList = await Promise.all(brandIds.map(id => getBrandData(id)));
     // 삭제된 브랜드는 사이드바에서 제외
     const validPairs = brandIds.map((id, i) => [id, dataList[i]]).filter(([, d]) => !d.deleted);
+
+    // 유효한 브랜드가 없으면 일반회원 메뉴로 폴백
+    if (validPairs.length === 0) {
+      return renderSidebar(STATUS.GENERAL);
+    }
+
     const dataMap  = Object.fromEntries(validPairs);
     const current  = dataMap[activeBrandId] || validPairs[0]?.[1] || { name: '', photoUrl: null };
 
@@ -648,6 +664,10 @@ function ctx() {
 }
 
 async function renderPage(page) {
+  // URL 해시 동기화 (새로고침 시 페이지 복원을 위해)
+  const newHash = '#' + page;
+  if (location.hash !== newHash) history.replaceState(null, '', newHash);
+
   $('topbar-title').textContent = PAGE_TITLES[page] || page;
   setActiveNav(page);
   const container = $('main-content');
@@ -1384,7 +1404,9 @@ async function renderPublicLanding() {
   // 헤더 (로고만, 로그인 버튼은 본문 카드에만)
   const header = document.createElement('div');
   header.className = 'landing-header';
-  header.innerHTML = `<div class="landing-logo">게을러서못열뻔한상점(GMBS)</div>`;
+  header.innerHTML = `
+    <div class="landing-logo">게을러서못열뻔한상점(GMBS)</div>
+    <div class="landing-logo-sub">입점 브랜드 관리자</div>`;
   loginScreen.appendChild(header);
 
   // 본문 영역
@@ -1594,9 +1616,21 @@ async function renderBrandListPage(container) {
         if (deletedIds.includes(currentUserDoc.brand_id)) {
           updates.brand_id = remainingIds[0] || null;
         }
+        // 담당 브랜드가 모두 삭제됐으면 계정 상태를 일반회원으로 되돌림
+        if (remainingIds.length === 0) {
+          updates.member_status = STATUS.GENERAL;
+          updates.brand_id = null;
+        }
         await updateDoc(doc(db, 'users', currentUser.uid), updates).catch(() => {});
         currentUserDoc = { ...currentUserDoc, ...updates };
         if (updates.brand_id !== undefined) setActiveBrand(updates.brand_id);
+
+        // 모든 브랜드가 삭제된 경우: 사이드바를 일반회원 메뉴로 전환하고 일반회원 뷰로 재렌더링
+        if (remainingIds.length === 0) {
+          await updateSidebarUser(STATUS.GENERAL);
+          await renderBrandListPage(container);
+          return;
+        }
       }
 
       // 삭제된 브랜드 제외 + 이름을 알 수 없는 브랜드는 '알 수 없는 브랜드'로 표시
@@ -1700,8 +1734,13 @@ async function renderBrandListPage(container) {
       getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
       getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
     ]);
-    const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }));
-    const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
+    // 승인된 신청은 GENERAL 뷰에서 제외
+    // (승인됐다면 브랜드 담당자가 되어야 하는데 여전히 GENERAL이면 브랜드가 삭제된 것)
+    const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }))
+                             .filter(item => item.status !== STATUS.APPROVED);
+    const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }))
+                             .filter(item => item.status !== STATUS.APPROVED);
+
     const all   = [...apps, ...joins].sort((a, b) => {
       const ta = a.submitted_at?.toMillis?.() || 0;
       const tb = b.submitted_at?.toMillis?.() || 0;

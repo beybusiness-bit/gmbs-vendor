@@ -43,6 +43,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   border-bottom: 1px solid rgba(140,82,255,.12);
 }
 .landing-logo { font-size: 20px; font-weight: 800; color: var(--primary); }
+.landing-logo-sub { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
 .landing-body { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px; }
 
 /* 위저드 카드 */
@@ -189,8 +190,10 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   white-space: nowrap;
   overflow: hidden;
 }
-.sidebar-logo .logo-text { overflow: hidden; transition: opacity .15s, width .22s; }
-.sidebar.collapsed .logo-text { opacity: 0; width: 0; }
+.sidebar-logo .logo-text-wrap { display: flex; flex-direction: column; overflow: hidden; transition: opacity .15s, width .22s; }
+.sidebar-logo .logo-text { font-size: 16px; font-weight: 800; color: var(--primary); }
+.sidebar-logo .logo-sub { font-size: 10px; font-weight: 400; color: var(--gray-400); margin-top: 1px; }
+.sidebar.collapsed .logo-text-wrap { opacity: 0; width: 0; }
 
 .sidebar-toggle {
   background: none;
