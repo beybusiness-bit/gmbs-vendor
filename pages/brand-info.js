@@ -148,7 +148,9 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
 
         <div class="info-grid">
           ${adminConfirmedHtml}
-          ${infoRow('입점일', fmt(b.created_at))}
+          ${b.approved_at ? infoRow('입점승인일', fmt(b.approved_at)) : ''}
+          ${b.contract_completed_at ? infoRow('입점계약체결일', fmt(b.contract_completed_at)) : ''}
+          ${(!b.approved_at && !b.contract_completed_at && b.created_at) ? infoRow('등록일', fmt(b.created_at)) : ''}
           ${websiteUrlsHtml}
         </div>
 
@@ -257,8 +259,8 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     </div>
 
     <div id="edit-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
-      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1">취소</button>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1;margin-top:0">취소</button>
       <button class="btn btn-primary" id="btn-edit-save" style="flex:2">저장</button>
     </div>
   `);
@@ -443,8 +445,8 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     </div>` : ''}
 
     <div id="edit-settlement-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
-      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1">취소</button>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1;margin-top:0">취소</button>
       <button class="btn btn-primary" id="btn-settlement-save" style="flex:2">저장</button>
     </div>
   `);
