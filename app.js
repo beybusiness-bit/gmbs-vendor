@@ -1033,12 +1033,12 @@ async function openApplyModal() {
       <div id="individual-fields" style="display:none">
         <div class="form-group">
           <label class="form-label">주민등록번호</label>
-          <input id="app-resident-number" class="form-input" type="password"
-            placeholder="000000-0000000" maxlength="14" autocomplete="off">
+          <input id="app-resident-number" class="form-input" type="text"
+            placeholder="000000-0000000" maxlength="14" autocomplete="off" inputmode="numeric">
           <div id="app-resident-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
           <p style="margin-top:6px;font-size:11px;color:var(--gray-500);line-height:1.5;background:var(--gray-50);padding:8px 10px;border-radius:6px">
             주민등록번호는 소득세법 제127조에 따른 원천징수 신고 목적으로만 수집됩니다.<br>
-            AES-256 암호화 저장, 세무법정 보관 기간(5년) 이후 파기됩니다.
+            안전하게 저장되며, 세무법정 보관 기간(5년) 이후 파기됩니다.
           </p>
         </div>
       </div>
@@ -1151,20 +1151,43 @@ async function openApplyModal() {
     }
   });
 
-  // 주민등록번호 자동 하이픈 + 실시간 검증
-  $('app-resident-number').addEventListener('input', () => {
+  // 주민등록번호 자동 하이픈 + 실시간 검증 + blur 시 뒷자리 마스킹
+  (function initResidentInput() {
     const el = $('app-resident-number');
-    el.value = formatResidentNumber(el.value);
     const hint = $('app-resident-hint');
-    const digits = el.value.replace(/-/g, '');
-    if (digits.length === 13) {
-      const r = validateResidentNumber(el.value);
-      hint.style.color = r.ok ? 'var(--success, #16a34a)' : 'var(--danger)';
-      hint.textContent = r.ok ? '✓ 형식이 올바릅니다.' : '✗ ' + r.msg;
-    } else {
-      hint.textContent = '';
+
+    function maskValue(formatted) {
+      // 000000-1●●●●●● 형태로 뒤 6자리 마스킹
+      if (formatted.length >= 8) return formatted.slice(0, 8) + '●●●●●●';
+      return formatted;
     }
-  });
+
+    el.addEventListener('input', () => {
+      // 마스킹 문자 제거 후 포맷 적용
+      const raw = el.value.replace(/●/g, '');
+      const formatted = formatResidentNumber(raw);
+      el.value = formatted;
+      el.dataset.actual = formatted; // 실제 값 보관
+
+      const digits = formatted.replace(/-/g, '');
+      if (digits.length === 13) {
+        const r = validateResidentNumber(formatted);
+        hint.style.color = r.ok ? 'var(--success, #16a34a)' : 'var(--danger)';
+        hint.textContent = r.ok ? '✓ 형식이 올바릅니다.' : '✗ ' + r.msg;
+      } else {
+        hint.textContent = '';
+      }
+    });
+
+    el.addEventListener('blur', () => {
+      const actual = el.dataset.actual || '';
+      if (actual.replace(/-/g, '').length === 13) el.value = maskValue(actual);
+    });
+
+    el.addEventListener('focus', () => {
+      el.value = el.dataset.actual || '';
+    });
+  })();
 
   $('btn-app-submit').addEventListener('click', async () => {
     const brandName    = $('app-brand-name').value.trim();
@@ -1186,7 +1209,7 @@ async function openApplyModal() {
     const validationErrors = validateSettlementForm({
       bizType,
       bizNumber:      $('app-biz-reg-number')?.value || '',
-      residentNumber: $('app-resident-number')?.value || '',
+      residentNumber: $('app-resident-number')?.dataset.actual || $('app-resident-number')?.value || '',
     });
     if (validationErrors.length) { errEl.textContent = validationErrors[0]; return; }
 
@@ -1212,7 +1235,8 @@ async function openApplyModal() {
       // 정산 정보 구성
       const isBiz = bizType === 'business';
       const accountNumberRaw = $('app-account-number').value.trim();
-      const residentNumberRaw = !isBiz ? ($('app-resident-number').value.trim()) : '';
+      const residentEl = $('app-resident-number');
+      const residentNumberRaw = !isBiz ? ((residentEl.dataset.actual || residentEl.value).trim()) : '';
 
       const [accountNumberEnc, residentNumberEnc] = await Promise.all([
         encryptValue(accountNumberRaw),
