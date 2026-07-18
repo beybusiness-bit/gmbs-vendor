@@ -427,17 +427,29 @@ async function checkApplicationStatus() {
   renderPage('brand-list');
 }
 
-// ── 브랜드 데이터 캐시 (이름 + 사진) ──
+// ── 브랜드 데이터 캐시 (이름 + 사진 + 상태 + 존재 여부) ──
 const _brandDataCache = {};
 async function getBrandData(brandId) {
   if (_brandDataCache[brandId]) return _brandDataCache[brandId];
   try {
     const snap = await getDoc(doc(db, 'brands', brandId));
+    if (!snap.exists()) {
+      // 브랜드 문서가 삭제됨
+      return { name: null, photoUrl: null, onboardingStatus: null, deleted: true };
+    }
     const d = snap.data() || {};
-    const data = { name: d.brand_name || brandId, photoUrl: d.brand_photo_url || null };
+    const data = {
+      name:            d.brand_name || brandId,
+      photoUrl:        d.brand_photo_url || null,
+      onboardingStatus: d.onboarding_status || d.brand_status || d.status || null,
+      deleted:         false,
+    };
     _brandDataCache[brandId] = data;
     return data;
-  } catch (_) { return { name: brandId, photoUrl: null }; }
+  } catch (_) {
+    // 권한 오류 등 — 삭제된 것으로 간주하지 않고 이름을 알 수 없는 상태로 처리
+    return { name: null, photoUrl: null, onboardingStatus: null, deleted: false };
+  }
 }
 async function getBrandName(brandId) {
   return (await getBrandData(brandId)).name;
@@ -474,8 +486,10 @@ async function renderSidebar(memberStatus) {
   if (memberStatus === STATUS.BRAND) {
     const brandIds = getUserBrandIds(currentUserDoc);
     const dataList = await Promise.all(brandIds.map(id => getBrandData(id)));
-    const dataMap  = Object.fromEntries(brandIds.map((id, i) => [id, dataList[i]]));
-    const current  = dataMap[activeBrandId] || dataList[0] || { name: '', photoUrl: null };
+    // 삭제된 브랜드는 사이드바에서 제외
+    const validPairs = brandIds.map((id, i) => [id, dataList[i]]).filter(([, d]) => !d.deleted);
+    const dataMap  = Object.fromEntries(validPairs);
+    const current  = dataMap[activeBrandId] || validPairs[0]?.[1] || { name: '', photoUrl: null };
 
     nav.innerHTML = `
       <div class="sidebar-brand-header" id="brand-header-btn" title="브랜드 전환">
@@ -1563,11 +1577,46 @@ async function renderBrandListPage(container) {
   const uid = currentUser.uid;
   const isBrandMember = currentUserDoc?.member_status === STATUS.BRAND;
 
-  // 브랜드 회원: 실제 담당 브랜드 목록 표시
+  // 브랜드 담당자: 실제 담당 브랜드 목록 표시
   if (isBrandMember) {
     try {
       const brandIds = getUserBrandIds(currentUserDoc);
-      const brands = await Promise.all(brandIds.map(id => getBrandData(id).then(d => ({ id, ...d }))));
+      const allBrands = await Promise.all(brandIds.map(id => getBrandData(id).then(d => ({ id, ...d }))));
+
+      // 삭제된 브랜드 자동 정리 (brand_ids에서 제거)
+      const deletedIds = allBrands.filter(b => b.deleted).map(b => b.id);
+      if (deletedIds.length > 0) {
+        const remainingIds = brandIds.filter(id => !deletedIds.includes(id));
+        const updates = {
+          brand_ids:  remainingIds,
+          updated_at: serverTimestamp(),
+        };
+        if (deletedIds.includes(currentUserDoc.brand_id)) {
+          updates.brand_id = remainingIds[0] || null;
+        }
+        await updateDoc(doc(db, 'users', currentUser.uid), updates).catch(() => {});
+        currentUserDoc = { ...currentUserDoc, ...updates };
+        if (updates.brand_id !== undefined) setActiveBrand(updates.brand_id);
+      }
+
+      // 삭제된 브랜드 제외 + 이름을 알 수 없는 브랜드는 '알 수 없는 브랜드'로 표시
+      const brands = allBrands.filter(b => !b.deleted);
+
+      // onboarding_status → 배지 변환
+      const ONBOARDING_BADGE = {
+        '미계약':   { cls: 'badge-gray',   label: '미계약' },
+        '심사중':   { cls: 'badge-yellow', label: '심사중' },
+        '계약완료': { cls: 'badge-yellow', label: '계약완료' },
+        '승인':     { cls: 'badge-green',  label: '승인' },
+        '입점확정': { cls: 'badge-green',  label: '입점확정' },
+        '거절':     { cls: 'badge-red',    label: '거절' },
+        '종료':     { cls: 'badge-red',    label: '종료' },
+      };
+      function statusBadgeBrand(status) {
+        const m = ONBOARDING_BADGE[status];
+        if (m) return `<span class="badge ${m.cls}">${m.label}</span>`;
+        return `<span class="badge badge-gray">-</span>`;
+      }
 
       let filtered = brands;
 
@@ -1581,7 +1630,7 @@ async function renderBrandListPage(container) {
               <tr>
                 <th style="width:48px"></th>
                 <th>브랜드명</th>
-                <th style="width:100px;text-align:center">상태</th>
+                <th style="width:110px;text-align:center">입점 상태</th>
               </tr>
             </thead>
             <tbody>
@@ -1589,15 +1638,15 @@ async function renderBrandListPage(container) {
                 <tr class="brand-list-row" data-id="${b.id}" style="cursor:pointer">
                   <td>
                     ${b.photoUrl
-                      ? `<img src="${b.photoUrl}" alt="${b.name}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
+                      ? `<img src="${b.photoUrl}" alt="${esc(b.name || '')}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
                       : `<div style="width:36px;height:36px;border-radius:50%;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">${(b.name||'?')[0].toUpperCase()}</div>`}
                   </td>
                   <td>
-                    <span style="font-weight:600">${b.name}</span>
+                    <span style="font-weight:600">${esc(b.name || '알 수 없는 브랜드')}</span>
                     ${b.id === activeBrandId ? `<span class="badge badge-green" style="margin-left:8px;font-size:11px">현재</span>` : ''}
                   </td>
                   <td style="text-align:center">
-                    <span class="badge badge-green">활성</span>
+                    ${statusBadgeBrand(b.onboardingStatus)}
                   </td>
                 </tr>`).join('')}
             </tbody>
@@ -1623,7 +1672,7 @@ async function renderBrandListPage(container) {
 
       document.getElementById('brand-search').addEventListener('input', e => {
         const q = e.target.value.toLowerCase();
-        filtered = brands.filter(b => b.name.toLowerCase().includes(q));
+        filtered = brands.filter(b => (b.name || '').toLowerCase().includes(q));
         document.getElementById('brand-table-wrap').innerHTML = renderTable(filtered);
         bindRows();
       });
