@@ -710,7 +710,7 @@ async function renderDashboard() {
   container.innerHTML = `
     <div class="card" style="margin-bottom:20px">
       <h2 style="font-size:20px;font-weight:700;margin-bottom:6px">안녕하세요, ${esc(name)}님 👋</h2>
-      <p style="color:var(--gray-600);font-size:14px">GMBS 입점 브랜드 포털에 오신 것을 환영합니다.</p>
+      <p style="color:var(--gray-600);font-size:14px">GMBS 입점 브랜드 관리자에 오신 것을 환영합니다.</p>
     </div>
     <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
       <div class="card" style="text-align:center"><div class="spinner" style="margin:16px auto"></div></div>
@@ -1167,7 +1167,7 @@ async function fetchMyApplications() {
 
 // ── 신청 목록 공통 필터 ──
 // 승인된 항목은 어떤 경우든 처리 완료로 간주하여 목록에서 제외.
-// (어드민의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
+// (운영자의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
 function filterDeletedBrandApps(apps, joins) {
   return Promise.resolve(
     [...apps, ...joins].filter(item => item.status !== STATUS.APPROVED)
@@ -1513,6 +1513,9 @@ async function renderBrandListPage(container) {
   // 브랜드 담당자: 실제 담당 브랜드 목록 표시
   if (isBrandMember) {
     try {
+      // 최신 userDoc 로드 (외부에서 브랜드가 추가된 경우 반영)
+      const freshSnap = await getDoc(doc(db, 'users', uid));
+      if (freshSnap.exists()) currentUserDoc = freshSnap.data();
       const brandIds = getUserBrandIds(currentUserDoc);
       const allBrands = await Promise.all(brandIds.map(id => getBrandData(id).then(d => ({ id, ...d }))));
 
@@ -1547,22 +1550,35 @@ async function renderBrandListPage(container) {
       // 삭제된 브랜드 제외 + 이름을 알 수 없는 브랜드는 '알 수 없는 브랜드'로 표시
       const brands = allBrands.filter(b => !b.deleted);
 
-      // onboarding_status → 배지 변환
-      const ONBOARDING_BADGE = {
-        '미계약':             { cls: 'badge-gray',   label: '계약 전' },
-        '계약 전':            { cls: 'badge-gray',   label: '계약 전' },
-        '계약 정보 입력 필요': { cls: 'badge-orange', label: '계약 정보 입력 필요' },
-        '심사중':             { cls: 'badge-yellow', label: '심사중' },
-        '계약완료':           { cls: 'badge-yellow', label: '계약완료' },
-        '승인':               { cls: 'badge-green',  label: '승인' },
-        '입점확정':           { cls: 'badge-green',  label: '입점확정' },
-        '거절':               { cls: 'badge-red',    label: '거절' },
-        '종료':               { cls: 'badge-red',    label: '종료' },
+      // 각 브랜드에서 현재 사용자의 역할 조회
+      const myEmail = (currentUser.email || '').toLowerCase().trim();
+      const roleByBrandId = {};
+      await Promise.all(brands.map(async b => {
+        try {
+          const pSnap = await getDocs(query(
+            collection(db, 'brands', b.id, 'persons'),
+            where('login_google_email', '==', myEmail),
+          ));
+          roleByBrandId[b.id] = pSnap.docs[0]?.data()?.role || '';
+        } catch (_) { roleByBrandId[b.id] = ''; }
+      }));
+
+      // onboarding_status → 배지 + 설명
+      const ONBOARDING_INFO = {
+        '미계약':             { cls: 'badge-gray',   label: '계약 전',          desc: '정보 입력이 완료되었습니다. 운영자가 계약서를 준비 중입니다.' },
+        '계약 전':            { cls: 'badge-gray',   label: '계약 전',          desc: '정보 입력이 완료되었습니다. 운영자가 계약서를 준비 중입니다.' },
+        '계약 정보 입력 필요': { cls: 'badge-orange', label: '계약 정보 입력 필요', desc: '입점이 승인되었습니다. 브랜드 정보 메뉴에서 계약 및 정산 정보를 입력해 주세요.' },
+        '심사중':             { cls: 'badge-yellow', label: '심사중',           desc: '제출하신 서류를 검토 중입니다. 잠시 기다려 주세요.' },
+        '계약완료':           { cls: 'badge-yellow', label: '계약완료',         desc: '계약 서명이 완료되었습니다. 최종 입점 확정을 기다려 주세요.' },
+        '승인':               { cls: 'badge-green',  label: '승인',             desc: '입점이 승인되었습니다.' },
+        '입점확정':           { cls: 'badge-green',  label: '입점확정',         desc: '입점이 최종 확정되어 운영 중입니다.' },
+        '거절':               { cls: 'badge-red',    label: '거절',             desc: '입점이 거절되었습니다. 운영자에게 문의해 주세요.' },
+        '종료':               { cls: 'badge-red',    label: '종료',             desc: '입점이 종료된 브랜드입니다.' },
       };
-      function statusBadgeBrand(status) {
-        const m = ONBOARDING_BADGE[status];
-        if (m) return `<span class="badge ${m.cls}">${m.label}</span>`;
-        return `<span class="badge badge-gray">-</span>`;
+      function roleBadge(role) {
+        if (role === '주관리자') return `<span style="background:#8c52ff;color:#fff;font-weight:700;padding:2px 8px;border-radius:10px;font-size:11px">주관리자</span>`;
+        if (role === '부관리자') return `<span style="background:#eff6ff;color:#2563eb;font-weight:600;padding:2px 8px;border-radius:10px;font-size:11px">부관리자</span>`;
+        return '';
       }
 
       let filtered = brands;
@@ -1577,11 +1593,14 @@ async function renderBrandListPage(container) {
               <tr>
                 <th style="width:48px"></th>
                 <th>브랜드명</th>
-                <th style="width:110px;text-align:center">입점 상태</th>
+                <th style="width:120px;text-align:center">입점 상태</th>
+                <th style="color:var(--gray-500);text-align:center">설명</th>
               </tr>
             </thead>
             <tbody>
-              ${list.map(b => `
+              ${list.map(b => {
+                const info = ONBOARDING_INFO[b.onboardingStatus] || { cls: 'badge-gray', label: b.onboardingStatus || '-', desc: '' };
+                return `
                 <tr class="brand-list-row" data-id="${b.id}" style="cursor:pointer">
                   <td>
                     ${b.photoUrl
@@ -1589,13 +1608,18 @@ async function renderBrandListPage(container) {
                       : `<div style="width:36px;height:36px;border-radius:50%;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">${(b.name||'?')[0].toUpperCase()}</div>`}
                   </td>
                   <td>
-                    <span style="font-weight:600">${esc(b.name || '알 수 없는 브랜드')}</span>
-                    ${b.id === activeBrandId ? `<span class="badge badge-green" style="margin-left:8px;font-size:11px">현재</span>` : ''}
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <span style="font-weight:600">${esc(b.name || '알 수 없는 브랜드')}</span>
+                      ${b.id === activeBrandId ? `<span class="badge badge-green" style="font-size:11px">현재</span>` : ''}
+                      ${roleBadge(roleByBrandId[b.id])}
+                    </div>
                   </td>
                   <td style="text-align:center">
-                    ${statusBadgeBrand(b.onboardingStatus)}
+                    <span class="badge ${info.cls}">${info.label}</span>
                   </td>
-                </tr>`).join('')}
+                  <td style="font-size:12px;color:var(--gray-600)">${info.desc}</td>
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>`;
       }
@@ -1648,9 +1672,13 @@ async function renderBrandListPage(container) {
             const d = ts.toDate ? ts.toDate() : new Date(ts);
             return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
           };
-          const pendingStatusBadge = s => {
-            const map = { '제출됨': ['badge-yellow','심사중'], '거절': ['badge-red','거절'] };
-            const [cls, label] = map[s] || ['badge-gray', s || '-'];
+          const pendingStatusBadge = (item) => {
+            const isNew = item.type === 'new';
+            const map = {
+              '제출됨': isNew ? ['badge-yellow','심사 중'] : ['badge-yellow','검토 중'],
+              '거절':   isNew ? ['badge-red','거절']      : ['badge-red','반려'],
+            };
+            const [cls, label] = map[item.status] || ['badge-gray', item.status || '-'];
             return `<span class="badge ${cls}">${label}</span>`;
           };
 
@@ -1675,7 +1703,12 @@ async function renderBrandListPage(container) {
                     <span style="font-size:12px;padding:2px 8px;border-radius:20px;background:var(--gray-100);color:var(--gray-600);font-weight:600">
                       ${item.type === 'new' ? '새 브랜드 등록' : '기존 브랜드 합류'}
                     </span>
-                    ${pendingStatusBadge(item.status)}
+                    ${pendingStatusBadge(item)}
+                    ${item.applicant_role === '주관리자'
+                      ? `<span style="background:#8c52ff;color:#fff;font-weight:700;padding:2px 8px;border-radius:10px;font-size:11px">주관리자</span>`
+                      : item.applicant_role === '부관리자'
+                      ? `<span style="background:#eff6ff;color:#2563eb;font-weight:600;padding:2px 8px;border-radius:10px;font-size:11px">부관리자</span>`
+                      : ''}
                   </div>
                   <div style="font-size:15px;font-weight:700;margin-bottom:4px">
                     ${esc(item.brand_name || item.target_brand_name || item.target_brand_id || '(브랜드명 없음)')}
@@ -1726,9 +1759,14 @@ async function renderBrandListPage(container) {
       return tb - ta;
     });
 
-    const statusBadge = s => {
-      const map = { '제출됨': ['badge-yellow','심사중'], '승인': ['badge-green','승인'], '거절': ['badge-red','거절'] };
-      const [cls, label] = map[s] || ['badge-gray', s || '-'];
+    const statusBadge = (item) => {
+      const isNew = item.type === 'new';
+      const map = {
+        '제출됨': isNew ? ['badge-yellow','심사 중'] : ['badge-yellow','검토 중'],
+        '승인':   ['badge-green','승인'],
+        '거절':   isNew ? ['badge-red','거절']      : ['badge-red','반려'],
+      };
+      const [cls, label] = map[item.status] || ['badge-gray', item.status || '-'];
       return `<span class="badge ${cls}">${label}</span>`;
     };
     const fmtTs = ts => {
@@ -1762,7 +1800,12 @@ async function renderBrandListPage(container) {
                       <span style="font-size:12px;padding:2px 8px;border-radius:20px;background:var(--gray-100);color:var(--gray-600);font-weight:600">
                         ${item.type === 'new' ? '새 브랜드 등록' : '기존 브랜드 합류'}
                       </span>
-                      ${statusBadge(item.status)}
+                      ${statusBadge(item)}
+                      ${item.applicant_role === '주관리자'
+                        ? `<span style="background:#8c52ff;color:#fff;font-weight:700;padding:2px 8px;border-radius:10px;font-size:11px">주관리자</span>`
+                        : item.applicant_role === '부관리자'
+                        ? `<span style="background:#eff6ff;color:#2563eb;font-weight:600;padding:2px 8px;border-radius:10px;font-size:11px">부관리자</span>`
+                        : ''}
                     </div>
                     <div style="font-size:15px;font-weight:700;margin-bottom:4px">
                       ${item.brand_name || item.target_brand_name || item.target_brand_id || '(브랜드명 없음)'}

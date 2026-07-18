@@ -1,7 +1,7 @@
 /**
  * AES-GCM 암호화 유틸리티
  * 키는 Firestore app_configs/encryption 문서의 aes_key_b64 필드에서 로드.
- * 어드민과 동일한 키를 공유해야 복호화 가능.
+ * 운영자과 동일한 키를 공유해야 복호화 가능.
  * 암호화된 값 형식: "ENC:<base64(iv + ciphertext)>"
  */
 
