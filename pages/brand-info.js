@@ -166,7 +166,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
           </div>` : ''}
       </div>
 
-      <div class="card" style="margin-bottom:20px">
+      ${brandType === 'pb' ? '' : `<div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
           <div style="font-weight:700">계약 및 정산 정보</div>
           ${hasSettlement
@@ -209,7 +209,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
             ).join('')}
           </div>
         </div>` : ''}
-      </div>
+      </div>`}
     </div>
   `;
 
