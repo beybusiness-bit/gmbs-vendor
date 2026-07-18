@@ -151,6 +151,15 @@ async function computeBadges() {
     }).length;
 
     if (isBrand && brandId) {
+      // 브랜드 정보: 계약 정보 입력 필요 상태에서 미입력이면 배지
+      try {
+        const brandSnap = await getDoc(doc(db, 'brands', brandId));
+        const bd = brandSnap.data() || {};
+        const si = bd.settlement_info || {};
+        const needsContract = bd.onboarding_status === '계약 정보 입력 필요' && !si.bank_name;
+        if (needsContract) badges['brand-info'] = 1;
+      } catch (_) {}
+
       // 문의하기: 답변완료 중 아직 안 본 것
       const seenInq = _getReadIds('inquiries');
       const inqSnap = await getDocs(query(collection(db, 'inquiries'), where('brand_id', '==', brandId)));
@@ -986,70 +995,6 @@ async function openApplyModal() {
       ${roleSelectHTML('app-role')}
     </div>
 
-    <div id="settlement-section">
-      <div style="${sectionStyle}">정산 정보</div>
-
-      <div class="form-group">
-        <label class="form-label">사업자 여부 <span style="color:var(--danger)">*</span></label>
-        <div style="display:flex;gap:12px;margin-top:6px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-            <input type="radio" name="app-biz-type" value="business" id="app-biz-business"> 사업자
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-            <input type="radio" name="app-biz-type" value="individual" id="app-biz-individual"> 개인(사업자없음)
-          </label>
-        </div>
-      </div>
-
-      <div id="business-fields" style="display:none">
-        <div class="form-group">
-          <label class="form-label">사업자등록번호</label>
-          <div style="display:flex;gap:8px">
-            <input id="app-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000" style="flex:1">
-            <button type="button" id="btn-verify-biz"
-              style="white-space:nowrap;padding:0 14px;background:var(--gray-100);border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:var(--gray-700)">
-              사업자 확인
-            </button>
-          </div>
-          <div id="app-biz-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">과세 유형</label>
-          <select id="app-taxation-type" class="form-input form-select">
-            <option value="">선택하세요</option>
-            <option value="일반">일반과세</option>
-            <option value="간이">간이과세</option>
-          </select>
-        </div>
-      </div>
-
-      <div id="individual-fields" style="display:none">
-        <div class="form-group">
-          <label class="form-label">주민등록번호</label>
-          <input id="app-resident-number" class="form-input" type="text"
-            placeholder="000000-0000000" maxlength="14" autocomplete="off" inputmode="numeric">
-          <div id="app-resident-hint" style="font-size:12px;margin-top:5px;min-height:18px"></div>
-          <p style="margin-top:6px;font-size:11px;color:var(--gray-500);line-height:1.5;background:var(--gray-50);padding:8px 10px;border-radius:6px">
-            주민등록번호는 소득세법 제127조에 따른 원천징수 신고 목적으로만 수집됩니다.<br>
-            안전하게 저장되며, 세무법정 보관 기간(5년) 이후 파기됩니다.
-          </p>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">은행명 <span style="color:var(--danger)">*</span></label>
-        <input id="app-bank-name" class="form-input" type="text" placeholder="국민은행">
-      </div>
-      <div class="form-group">
-        <label class="form-label">예금주명 <span style="color:var(--danger)">*</span></label>
-        <input id="app-account-holder" class="form-input" type="text" placeholder="홍길동">
-      </div>
-      <div class="form-group">
-        <label class="form-label">계좌번호 <span style="color:var(--danger)">*</span></label>
-        <input id="app-account-number" class="form-input" type="text" placeholder="000000-00-000000">
-      </div>
-    </div>
-
     <div id="app-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-app-submit" style="margin-top:8px">신청하기</button>
   `);
@@ -1089,99 +1034,6 @@ async function openApplyModal() {
     reader.readAsDataURL(file);
   });
 
-  // 사업자 여부 변경 → 사업자/개인 필드 토글
-  document.querySelectorAll('input[name="app-biz-type"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      const isBiz = document.getElementById('app-biz-business').checked;
-      $('business-fields').style.display = isBiz ? 'block' : 'none';
-      $('individual-fields').style.display = isBiz ? 'none' : 'block';
-    });
-  });
-
-  // 사업자등록번호 자동 포맷 + 형식 힌트
-  $('app-biz-reg-number').addEventListener('input', () => {
-    const el = $('app-biz-reg-number');
-    el.value = formatBizRegNumber(el.value);
-    const hint = $('app-biz-hint');
-    const digits = el.value.replace(/-/g, '');
-    if (digits.length === 10) {
-      if (validateBizRegNumber(digits)) {
-        hint.style.color = 'var(--success, #16a34a)';
-        hint.textContent = '형식 확인됨 — "사업자 확인" 버튼으로 실제 조회하세요.';
-      } else {
-        hint.style.color = 'var(--danger)';
-        hint.textContent = '올바르지 않은 사업자등록번호입니다.';
-      }
-    } else {
-      hint.textContent = '';
-    }
-  });
-
-  // 사업자 확인 버튼 (국세청 API)
-  $('btn-verify-biz').addEventListener('click', async () => {
-    const el = $('app-biz-reg-number');
-    const hint = $('app-biz-hint');
-    const digits = (el.value || '').replace(/-/g, '');
-    if (digits.length !== 10 || !validateBizRegNumber(digits)) {
-      hint.style.color = 'var(--danger)';
-      hint.textContent = '사업자등록번호를 먼저 올바르게 입력하세요.';
-      return;
-    }
-    $('btn-verify-biz').disabled = true;
-    hint.style.color = 'var(--gray-500)';
-    hint.textContent = '조회 중...';
-    try {
-      const r = await verifyBizNumber(digits);
-      const colors = { active: 'var(--success, #16a34a)', dormant: 'var(--warning, #b45309)', closed: 'var(--danger)' };
-      const icons  = { active: '✓', dormant: '⚠', closed: '✗' };
-      hint.style.color = colors[r.status] || 'var(--gray-600)';
-      hint.textContent = (icons[r.status] || '?') + ' ' + r.label;
-    } catch (e) {
-      hint.style.color = 'var(--danger)';
-      hint.textContent = '조회 오류: ' + e.message;
-    } finally {
-      $('btn-verify-biz').disabled = false;
-    }
-  });
-
-  // 주민등록번호 자동 하이픈 + 실시간 검증 + blur 시 뒷자리 마스킹
-  (function initResidentInput() {
-    const el = $('app-resident-number');
-    const hint = $('app-resident-hint');
-
-    function maskValue(formatted) {
-      // 000000-1●●●●●● 형태로 뒤 6자리 마스킹
-      if (formatted.length >= 8) return formatted.slice(0, 8) + '●●●●●●';
-      return formatted;
-    }
-
-    el.addEventListener('input', () => {
-      // 마스킹 문자 제거 후 포맷 적용
-      const raw = el.value.replace(/●/g, '');
-      const formatted = formatResidentNumber(raw);
-      el.value = formatted;
-      el.dataset.actual = formatted; // 실제 값 보관
-
-      const digits = formatted.replace(/-/g, '');
-      if (digits.length === 13) {
-        const r = validateResidentNumber(formatted);
-        hint.style.color = r.ok ? 'var(--success, #16a34a)' : 'var(--danger)';
-        hint.textContent = r.ok ? '✓ 형식이 올바릅니다.' : '✗ ' + r.msg;
-      } else {
-        hint.textContent = '';
-      }
-    });
-
-    el.addEventListener('blur', () => {
-      const actual = el.dataset.actual || '';
-      if (actual.replace(/-/g, '').length === 13) el.value = maskValue(actual);
-    });
-
-    el.addEventListener('focus', () => {
-      el.value = el.dataset.actual || '';
-    });
-  })();
-
   $('btn-app-submit').addEventListener('click', async () => {
     const brandName    = $('app-brand-name').value.trim();
     const phone        = $('app-phone').value.trim();
@@ -1193,18 +1045,6 @@ async function openApplyModal() {
     if (!phone)        { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail) { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
     if (!role)         { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
-
-    const bizType = document.querySelector('input[name="app-biz-type"]:checked')?.value;
-    if (!bizType) { errEl.textContent = '사업자 여부를 선택해 주세요.'; return; }
-    if (!$('app-bank-name').value.trim())      { errEl.textContent = '은행명을 입력해 주세요.'; return; }
-    if (!$('app-account-holder').value.trim()) { errEl.textContent = '예금주명을 입력해 주세요.'; return; }
-    if (!$('app-account-number').value.trim()) { errEl.textContent = '계좌번호를 입력해 주세요.'; return; }
-    const validationErrors = validateSettlementForm({
-      bizType,
-      bizNumber:      $('app-biz-reg-number')?.value || '',
-      residentNumber: $('app-resident-number')?.dataset.actual || $('app-resident-number')?.value || '',
-    });
-    if (validationErrors.length) { errEl.textContent = validationErrors[0]; return; }
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
@@ -1225,30 +1065,6 @@ async function openApplyModal() {
       const websiteUrls = [...document.querySelectorAll('.app-url-input')]
         .map(el => el.value.trim()).filter(Boolean);
 
-      // 정산 정보 구성
-      const isBiz = bizType === 'business';
-      const accountNumberRaw = $('app-account-number').value.trim();
-      const residentEl = $('app-resident-number');
-      const residentNumberRaw = !isBiz ? ((residentEl.dataset.actual || residentEl.value).trim()) : '';
-
-      const [accountNumberEnc, residentNumberEnc] = await Promise.all([
-        encryptValue(accountNumberRaw),
-        encryptValue(residentNumberRaw),
-      ]);
-
-      const settlementInfo = {
-        business_type:  bizType,
-        bank_name:      $('app-bank-name').value.trim(),
-        account_holder: $('app-account-holder').value.trim(),
-        account_number: accountNumberEnc,
-        ...(isBiz ? {
-          business_reg_number: $('app-biz-reg-number').value.trim(),
-          taxation_type:       $('app-taxation-type').value,
-        } : {
-          resident_number: residentNumberEnc,
-        }),
-      };
-
       await addDoc(collection(db, 'brand_applications'), {
         applicant_uid:           currentUser.uid,
         applicant_email:         normalizeEmail(currentUser.email),
@@ -1260,7 +1076,6 @@ async function openApplyModal() {
         brand_description:       $('app-brand-desc').value.trim(),
         website_urls:            websiteUrls,
         brand_photo_url:         photoUrl,
-        settlement_info:         settlementInfo,
         status:                  STATUS.SUBMITTED,
         submitted_at:            serverTimestamp(),
       });
@@ -1298,8 +1113,6 @@ function showApplicationDetail(item) {
          <div style="flex:1;font-size:13px;word-break:break-all">${value}</div>
        </div>`
     : '';
-  const si = item.settlement_info || {};
-  const bizTypeLabel = si.business_type === 'business' ? '사업자' : si.business_type === 'individual' ? '개인(사업자없음)' : '';
   const urlsHtml = Array.isArray(item.website_urls) && item.website_urls.length
     ? item.website_urls.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--primary);display:block;margin-bottom:2px">${esc(u)}</a>`).join('')
     : '';
@@ -1323,14 +1136,6 @@ function showApplicationDetail(item) {
     ${row('역할/직책', esc(item.applicant_role || ''))}
     ${row('연락처', esc(item.applicant_phone || ''))}
     ${row('이메일', esc(item.applicant_contact_email || ''))}
-    ${isNew ? `
-      ${sectionHead('정산 정보')}
-      ${row('사업자 유형', bizTypeLabel)}
-      ${row('은행명', esc(si.bank_name || ''))}
-      ${row('예금주명', esc(si.account_holder || ''))}
-      ${si.business_type === 'business' ? row('사업자등록번호', esc(si.business_reg_number || '')) : ''}
-      ${si.business_type === 'business' ? row('과세 유형', esc(si.taxation_type || '')) : ''}
-    ` : ''}
     ${rejReason ? `<div style="margin-top:12px;padding:10px 12px;background:#fee2e2;border-radius:8px;font-size:13px;color:#b91c1c"><strong>거절 사유:</strong> ${esc(rejReason)}</div>` : ''}
     <button class="btn btn-outline" id="btn-detail-close" style="margin-top:16px">닫기</button>
   `);
@@ -1748,13 +1553,15 @@ async function renderBrandListPage(container) {
 
       // onboarding_status → 배지 변환
       const ONBOARDING_BADGE = {
-        '미계약':   { cls: 'badge-gray',   label: '미계약' },
-        '심사중':   { cls: 'badge-yellow', label: '심사중' },
-        '계약완료': { cls: 'badge-yellow', label: '계약완료' },
-        '승인':     { cls: 'badge-green',  label: '승인' },
-        '입점확정': { cls: 'badge-green',  label: '입점확정' },
-        '거절':     { cls: 'badge-red',    label: '거절' },
-        '종료':     { cls: 'badge-red',    label: '종료' },
+        '미계약':             { cls: 'badge-gray',   label: '계약 전' },
+        '계약 전':            { cls: 'badge-gray',   label: '계약 전' },
+        '계약 정보 입력 필요': { cls: 'badge-orange', label: '계약 정보 입력 필요' },
+        '심사중':             { cls: 'badge-yellow', label: '심사중' },
+        '계약완료':           { cls: 'badge-yellow', label: '계약완료' },
+        '승인':               { cls: 'badge-green',  label: '승인' },
+        '입점확정':           { cls: 'badge-green',  label: '입점확정' },
+        '거절':               { cls: 'badge-red',    label: '거절' },
+        '종료':               { cls: 'badge-red',    label: '종료' },
       };
       function statusBadgeBrand(status) {
         const m = ONBOARDING_BADGE[status];

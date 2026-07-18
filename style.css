@@ -366,6 +366,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 .badge-yellow { background: #fef9c3; color: #a16207; }
 .badge-red    { background: #fee2e2; color: #b91c1c; }
 .badge-gray   { background: var(--gray-100); color: var(--gray-600); }
+.badge-orange { background: #fff7ed; color: #c2410c; }
 
 /* ── 심사중 화면 ── */
 .pending-wrap { max-width: 560px; margin: 60px auto; text-align: center; }
