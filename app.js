@@ -1288,6 +1288,62 @@ async function openApplyModal() {
   });
 }
 
+// ── 신청 상세 모달 ──
+function showApplicationDetail(item) {
+  const fmt = ts => {
+    if (!ts) return '-';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+  };
+  const isNew = item.type === 'apply' || item.type === 'new';
+  const brandLabel = item.brand_name || item.target_brand_name || item.target_brand_id || '-';
+  const statusColors = { '제출됨': 'badge-yellow', '승인': 'badge-green', '거절': 'badge-red' };
+  const statusBadge = s => `<span class="badge ${statusColors[s] || 'badge-gray'}">${s || '-'}</span>`;
+  const row = (label, value) => (value != null && value !== '')
+    ? `<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--gray-100)">
+         <div style="flex:0 0 110px;font-size:12px;color:var(--gray-500);font-weight:600;padding-top:1px">${label}</div>
+         <div style="flex:1;font-size:13px;word-break:break-all">${value}</div>
+       </div>`
+    : '';
+  const si = item.settlement_info || {};
+  const bizTypeLabel = si.business_type === 'business' ? '사업자' : si.business_type === 'individual' ? '개인(사업자없음)' : '';
+  const urlsHtml = Array.isArray(item.website_urls) && item.website_urls.length
+    ? item.website_urls.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--primary);display:block;margin-bottom:2px">${esc(u)}</a>`).join('')
+    : '';
+  const sectionHead = label => `<div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:.06em;text-transform:uppercase;margin:16px 0 4px">${label}</div>`;
+  const rejReason = item.rejection_reason || item.reject_reason;
+
+  showModal(`
+    <div class="modal-title">${isNew ? '새 브랜드 등록' : '브랜드 합류'} 신청 상세</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${statusBadge(item.status)}
+      <span style="font-size:15px;font-weight:700">${esc(brandLabel)}</span>
+    </div>
+    ${item.brand_photo_url ? `<img src="${esc(item.brand_photo_url)}" style="max-width:90px;max-height:90px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200);margin-bottom:12px">` : ''}
+    ${sectionHead('기본 정보')}
+    ${row('신청 유형', isNew ? '새 브랜드 등록' : '기존 브랜드 합류')}
+    ${row('브랜드명', esc(brandLabel))}
+    ${isNew ? row('브랜드 소개', esc(item.brand_description || '')) : ''}
+    ${isNew && urlsHtml ? row('관련 사이트', urlsHtml) : ''}
+    ${row('신청일', fmt(item.submitted_at))}
+    ${sectionHead('담당자 정보')}
+    ${row('역할/직책', esc(item.applicant_role || ''))}
+    ${row('연락처', esc(item.applicant_phone || ''))}
+    ${row('이메일', esc(item.applicant_contact_email || ''))}
+    ${isNew ? `
+      ${sectionHead('정산 정보')}
+      ${row('사업자 유형', bizTypeLabel)}
+      ${row('은행명', esc(si.bank_name || ''))}
+      ${row('예금주명', esc(si.account_holder || ''))}
+      ${si.business_type === 'business' ? row('사업자등록번호', esc(si.business_reg_number || '')) : ''}
+      ${si.business_type === 'business' ? row('과세 유형', esc(si.taxation_type || '')) : ''}
+    ` : ''}
+    ${rejReason ? `<div style="margin-top:12px;padding:10px 12px;background:#fee2e2;border-radius:8px;font-size:13px;color:#b91c1c"><strong>거절 사유:</strong> ${esc(rejReason)}</div>` : ''}
+    <button class="btn btn-outline" id="btn-detail-close" style="margin-top:16px">닫기</button>
+  `);
+  document.getElementById('btn-detail-close').addEventListener('click', closeModal);
+}
+
 // ── 신청 목록 공통 필터 ──
 // 승인됐는데 GENERAL인 경우 = 브랜드가 삭제된 것. 목록에서 제외.
 // brand_join_requests: target_brand_id로 브랜드 존재 확인
@@ -1382,6 +1438,7 @@ async function renderPendingFull(container) {
       const card = document.createElement('div');
       card.className = 'card';
       card.style.marginBottom = '12px';
+      card.style.cursor = 'pointer';
 
       const canCancel = item.status === STATUS.SUBMITTED;
       const brandLabel = item.brand_name || item.target_brand_name || item.target_brand_id || '-';
@@ -1400,9 +1457,12 @@ async function renderPendingFull(container) {
           ${canCancel ? `<button class="btn-cancel-join" style="margin-left:12px;flex-shrink:0;width:auto;padding:6px 14px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">신청 취소</button>` : ''}
         </div>`;
 
+      card.addEventListener('click', () => showApplicationDetail(item));
+
       if (canCancel) {
         const collName = item.type === 'join' ? 'brand_join_requests' : 'brand_applications';
-        card.querySelector('.btn-cancel-join').addEventListener('click', async () => {
+        card.querySelector('.btn-cancel-join').addEventListener('click', async e => {
+          e.stopPropagation();
           if (!confirm(`'${brandLabel}' 신청을 취소하시겠습니까?`)) return;
           await deleteDoc(doc(db, collName, item.id));
           all.splice(all.indexOf(item), 1);
@@ -1816,8 +1876,8 @@ async function renderBrandListPage(container) {
                <p style="font-size:15px;font-weight:600;margin-bottom:8px">아직 신청 내역이 없습니다.</p>
                <p style="font-size:13px">위 버튼을 눌러 브랜드 담당자로 합류하거나 새 브랜드를 등록하세요.</p>
              </div>`
-          : all.map(item => `
-              <div class="card" style="margin-bottom:10px">
+          : all.map((item, idx) => `
+              <div class="card app-detail-card" data-idx="${idx}" style="margin-bottom:10px;cursor:pointer">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
                   <div style="flex:1;min-width:0">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
@@ -1846,8 +1906,13 @@ async function renderBrandListPage(container) {
 
     document.getElementById('btn-add-brand').addEventListener('click', () => renderPage('member-onboarding'));
 
+    container.querySelectorAll('.app-detail-card').forEach(card => {
+      card.addEventListener('click', () => showApplicationDetail(all[parseInt(card.dataset.idx)]));
+    });
+
     container.querySelectorAll('.btn-cancel-app').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
         if (!confirm('신청을 취소하시겠습니까?')) return;
         const colName = btn.dataset.type === 'new' ? 'brand_applications' : 'brand_join_requests';
         try {
