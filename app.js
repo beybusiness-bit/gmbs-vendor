@@ -1351,20 +1351,12 @@ function showApplicationDetail(item) {
 }
 
 // ── 신청 목록 공통 필터 ──
-// 승인됐는데 GENERAL인 경우 = 브랜드가 삭제된 것. 목록에서 제외.
-// brand_join_requests: target_brand_id로 브랜드 존재 확인
-// brand_applications:  brand_id 정보 없으므로 승인 건 전체 제외
-async function filterDeletedBrandApps(apps, joins) {
-  const joinsFiltered = await Promise.all(joins.map(async item => {
-    if (item.status !== STATUS.APPROVED) return item;
-    if (item.target_brand_id) {
-      const bd = await getBrandData(item.target_brand_id);
-      if (bd.deleted) return null;
-    }
-    return item;
-  }));
-  const appsFiltered = apps.filter(item => item.status !== STATUS.APPROVED);
-  return [...appsFiltered, ...joinsFiltered.filter(Boolean)];
+// 승인된 항목은 어떤 경우든 처리 완료로 간주하여 목록에서 제외.
+// (어드민의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
+function filterDeletedBrandApps(apps, joins) {
+  return Promise.resolve(
+    [...apps, ...joins].filter(item => item.status !== STATUS.APPROVED)
+  );
 }
 
 // ── 심사중 화면 (내 신청 현황 표시) ──
