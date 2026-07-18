@@ -1388,7 +1388,9 @@ async function renderPublicLanding() {
   // 헤더 (로고만, 로그인 버튼은 본문 카드에만)
   const header = document.createElement('div');
   header.className = 'landing-header';
-  header.innerHTML = `<div class="landing-logo">게을러서못열뻔한상점(GMBS)</div>`;
+  header.innerHTML = `
+    <div class="landing-logo">게을러서못열뻔한상점(GMBS)</div>
+    <div class="landing-logo-sub">입점 브랜드 관리자</div>`;
   loginScreen.appendChild(header);
 
   // 본문 영역
@@ -1717,7 +1719,18 @@ async function renderBrandListPage(container) {
       getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
     ]);
     const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }));
-    const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
+    const joinsRaw = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
+
+    // 승인된 합류 신청 중 브랜드가 실제로 삭제된 것은 목록에서 제외
+    const joinsChecked = await Promise.all(joinsRaw.map(async item => {
+      if (item.status === STATUS.APPROVED && item.target_brand_id) {
+        const bd = await getBrandData(item.target_brand_id);
+        if (bd.deleted) return null; // 브랜드 없음 → 제외
+      }
+      return item;
+    }));
+    const joins = joinsChecked.filter(Boolean);
+
     const all   = [...apps, ...joins].sort((a, b) => {
       const ta = a.submitted_at?.toMillis?.() || 0;
       const tb = b.submitted_at?.toMillis?.() || 0;
