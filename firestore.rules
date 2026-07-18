@@ -61,7 +61,13 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.applicant_uid == request.auth.uid
         && request.resource.data.status == '제출됨';
-      allow update: if false;
+      // 신청자 본인이 '취소됨'으로만 상태 변경 가능
+      allow update: if request.auth != null
+        && resource.data.applicant_uid == request.auth.uid
+        && resource.data.status == '제출됨'
+        && request.resource.data.status == '취소됨'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'cancelled_at']);
     }
 
     // ── brand_join_requests 컬렉션 ──
@@ -73,15 +79,21 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.applicant_uid == request.auth.uid
         && request.resource.data.status == '제출됨';
-      // 브랜드 주관리자가 승인/거절 처리 (상태·처리자 정보만 변경 허용)
-      allow update: if request.auth != null
-        && isBrandMember(resource.data.target_brand_id)
-        && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['status', 'approved_by', 'approved_by_email', 'approved_by_type',
-                       'approved_at', 'rejected_by', 'rejected_by_email', 'rejected_by_type',
-                       'rejected_at', 'rejection_reason', 'updated_at']);
-      allow delete: if request.auth != null
-        && resource.data.applicant_uid == request.auth.uid;
+      allow update: if request.auth != null && (
+        // 신청자 본인이 '취소됨'으로만 상태 변경 가능
+        (resource.data.applicant_uid == request.auth.uid
+          && resource.data.status == '제출됨'
+          && request.resource.data.status == '취소됨'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'cancelled_at']))
+        ||
+        // 브랜드 담당자가 승인/거절 처리 (상태·처리자 정보만 변경 허용)
+        (isBrandMember(resource.data.target_brand_id)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'approved_by', 'approved_by_email', 'approved_by_type',
+                         'approved_at', 'rejected_by', 'rejected_by_email', 'rejected_by_type',
+                         'rejected_at', 'rejection_reason', 'updated_at']))
+      );
     }
 
     // ── persons 최상위 컬렉션 (레거시 — 신규 쓰기 없음, 기존 문서 read만 허용) ──

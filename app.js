@@ -35,6 +35,7 @@ const STATUS = {
   SUBMITTED: '제출됨',
   APPROVED:  '승인',
   REJECTED:  '거절',
+  CANCELLED: '취소됨',
 };
 
 const normalizeEmail = e => (e || '').toLowerCase().trim();
@@ -1252,8 +1253,7 @@ async function fetchMyApplications() {
 }
 
 // ── 신청 목록 공통 필터 ──
-// 승인된 항목은 어떤 경우든 처리 완료로 간주하여 목록에서 제외.
-// (운영자의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
+// 승인된 항목만 제외 (취소됨·거절은 내역으로 남김)
 function filterDeletedBrandApps(apps, joins) {
   return Promise.resolve(
     [...apps, ...joins].filter(item => item.status !== STATUS.APPROVED)
@@ -1359,8 +1359,8 @@ async function renderPendingFull(container) {
         card.querySelector('.btn-cancel-join').addEventListener('click', async e => {
           e.stopPropagation();
           if (!confirm(`'${brandLabel}' 신청을 취소하시겠습니까?`)) return;
-          await deleteDoc(doc(db, collName, item.id));
-          all.splice(all.indexOf(item), 1);
+          await updateDoc(doc(db, collName, item.id), { status: STATUS.CANCELLED, cancelled_at: serverTimestamp() });
+          item.status = STATUS.CANCELLED;
           renderCards(all);
         });
       }
@@ -1813,7 +1813,7 @@ async function renderBrandListPage(container) {
                 if (!confirm('신청을 취소하시겠습니까?')) return;
                 const colName = item.type === 'new' ? 'brand_applications' : 'brand_join_requests';
                 try {
-                  await deleteDoc(doc(db, colName, item.id));
+                  await updateDoc(doc(db, colName, item.id), { status: STATUS.CANCELLED, cancelled_at: serverTimestamp() });
                   card.remove();
                   if (pendingList.children.length === 0) pendingSection.remove();
                 } catch (_) { alert('취소 중 오류가 발생했습니다.'); }
@@ -1849,6 +1849,7 @@ async function renderBrandListPage(container) {
         '제출됨': isNew ? ['badge-yellow','심사 중'] : ['badge-yellow','검토 중'],
         '승인':   ['badge-green','승인'],
         '거절':   isNew ? ['badge-red','거절']      : ['badge-red','반려'],
+        '취소됨': ['badge-gray','취소됨'],
       };
       const [cls, label] = map[item.status] || ['badge-gray', item.status || '-'];
       return `<span class="badge ${cls}">${label}</span>`;
@@ -1921,7 +1922,7 @@ async function renderBrandListPage(container) {
         if (!confirm('신청을 취소하시겠습니까?')) return;
         const colName = btn.dataset.type === 'new' ? 'brand_applications' : 'brand_join_requests';
         try {
-          await deleteDoc(doc(db, colName, btn.dataset.id));
+          await updateDoc(doc(db, colName, btn.dataset.id), { status: STATUS.CANCELLED, cancelled_at: serverTimestamp() });
           renderBrandListPage(container);
         } catch (_) { alert('취소 중 오류가 발생했습니다.'); }
       });
