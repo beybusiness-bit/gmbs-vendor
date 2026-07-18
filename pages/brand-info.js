@@ -7,18 +7,23 @@ import {
 } from '../utils/validation.js';
 import { esc, safeUrl } from '../utils/sanitize.js';
 
-// onboarding_status 값 기반 뱃지
+// onboarding_status 값 기반 뱃지 (구 값도 하위 호환)
 function statusBadge(status) {
   const map = {
+    // 신규 값
+    '입점중':   ['badge-green',  '입점중'],
+    '승인됨':   ['badge-green',  '승인됨'],
+    '입점종료': ['badge-red',    '입점종료'],
+    // 구 값 (하위 호환)
     '미계약':             ['badge-gray',   '계약 전'],
     '계약 전':            ['badge-gray',   '계약 전'],
     '계약 정보 입력 필요': ['badge-orange', '계약 정보 입력 필요'],
     '심사중':             ['badge-yellow', '심사중'],
     '계약완료':           ['badge-yellow', '계약완료'],
-    '승인':               ['badge-green',  '승인'],
-    '입점확정':           ['badge-green',  '입점확정'],
+    '승인':               ['badge-green',  '승인됨'],
+    '입점확정':           ['badge-green',  '입점중'],
     '거절':               ['badge-red',    '거절'],
-    '종료':               ['badge-red',    '종료'],
+    '종료':               ['badge-red',    '입점종료'],
   };
   const [cls, label] = map[status] || ['badge-gray', status || '-'];
   return `<span class="badge ${cls}">${label}</span>`;
@@ -83,7 +88,9 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
   const b = snap.data();
   const si = b.settlement_info || {};
   const onboardingStatus = b.onboarding_status || b.brand_status || b.status;
-  const brandType = b.brand_type || '';
+  // brand_types 배열 지원 (구 brand_type 문자열 하위 호환)
+  const brandTypes = b.brand_types || (b.brand_type ? [b.brand_type] : []);
+  const brandType  = brandTypes.join(' · ');  // 표시용
 
   // 암호화된 정산 필드 복호화 (사업자등록번호는 표시용 평문으로, 계좌번호는 버튼 클릭 시 복호화)
   let bizRegDisplay = si.business_reg_number || '';
@@ -149,7 +156,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
         </span>
       </div>`);
     const commissionRate = b.fee_info?.commission_rate;
-    if (brandType === '위탁' && commissionRate != null) {
+    if (brandTypes.includes('위탁') && commissionRate != null) {
       rows.push(infoRow('위탁판매수수료', `${commissionRate}%`));
     }
     return rows.join('');
@@ -414,7 +421,8 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
 // ── 정산 정보 수정 모달 ──
 async function openEditSettlementModal({ brandId, brand: b, showModal, closeModal, container, userDoc }) {
   const si = b.settlement_info || {};
-  const brandType = b.brand_type || '';
+  const brandTypes = b.brand_types || (b.brand_type ? [b.brand_type] : []);
+  const brandType  = brandTypes.join(' · ');
 
   // 기존 암호화된 값 복호화 (실패시 빈값)
   let existingAccountNumber = '';
@@ -524,7 +532,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       <input id="edit-account-number" class="form-input" type="text" placeholder="000000-00-000000" value="${existingAccountNumber}">
     </div>
 
-    ${brandType === '위탁' ? `
+    ${brandTypes.includes('위탁') ? `
     <div class="form-group">
       <label class="form-label">위탁판매수수료 (%)</label>
       <input id="edit-commission-rate" class="form-input" type="number" min="0" max="100" step="0.1"
@@ -711,13 +719,8 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       if (si.bank_book_url) updatedSettlement.bank_book_url = si.bank_book_url;
       if (si.biz_reg_url)  updatedSettlement.biz_reg_url  = si.biz_reg_url;
 
-      const brandSnap = await getDoc(doc(db, 'brands', brandId));
-      const currentStatus = brandSnap.data()?.onboarding_status;
-      const statusUpdate = currentStatus === '계약 정보 입력 필요' ? { onboarding_status: '계약 전' } : {};
-
       await updateDoc(doc(db, 'brands', brandId), {
         settlement_info: updatedSettlement,
-        ...statusUpdate,
         updated_at: serverTimestamp(),
       });
 

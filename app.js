@@ -184,13 +184,14 @@ async function computeBadges() {
     }).length;
 
     if (isBrand && brandId) {
-      // 브랜드 정보: 계약 정보 입력 필요 상태에서 미입력이면 배지
+      // 계약: 계약정보 입력 필요 상태인 계약이 있으면 배지
       try {
-        const brandSnap = await getDoc(doc(db, 'brands', brandId));
-        const bd = brandSnap.data() || {};
-        const si = bd.settlement_info || {};
-        const needsContract = bd.onboarding_status === '계약 정보 입력 필요' && !si.bank_name;
-        if (needsContract) badges['brand-info'] = 1;
+        const contractSnap = await getDocs(collection(db, 'brands', brandId, 'contracts'));
+        const needsInput = contractSnap.docs.some(d => {
+          const cs = d.data().contract_status || d.data().status;
+          return cs === '계약정보입력';
+        });
+        if (needsInput) badges.contracts = 1;
       } catch (_) {}
 
       // 문의하기: 답변완료 중 아직 안 본 것

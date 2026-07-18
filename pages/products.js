@@ -1,6 +1,6 @@
 import {
   db, collection, query, where, orderBy, getDocs,
-  addDoc, updateDoc, doc, serverTimestamp,
+  addDoc, updateDoc, doc, getDoc, serverTimestamp,
 } from '../firebase-init.js';
 
 function noPerm(label) {
@@ -55,14 +55,19 @@ export async function renderProducts({ userDoc, container, showModal, closeModal
   container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
 
   let products;
+  let brandTypes = [];
   try {
-    const q = query(
-      collection(db, 'products'),
-      where('brand_id', '==', brandId),
-      orderBy('submitted_at', 'desc'),
-    );
-    const snap = await getDocs(q);
-    products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const [prodSnap, brandSnap] = await Promise.all([
+      getDocs(query(
+        collection(db, 'products'),
+        where('brand_id', '==', brandId),
+        orderBy('submitted_at', 'desc'),
+      )),
+      getDoc(doc(db, 'brands', brandId)),
+    ]);
+    products = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const bd = brandSnap.data() || {};
+    brandTypes = bd.brand_types || (bd.brand_type ? [bd.brand_type] : []);
   } catch (e) {
     console.error('상품 목록 로드 실패:', e);
     container.innerHTML = `<div class="card" style="text-align:center;padding:40px;color:var(--danger)">
@@ -95,6 +100,7 @@ export async function renderProducts({ userDoc, container, showModal, closeModal
                  <tr>
                    <th>상품명</th>
                    <th>카테고리</th>
+                   ${brandTypes.length > 1 ? '<th>거래유형</th>' : ''}
                    <th>희망 소비자가</th>
                    <th>공급가</th>
                    <th>수수료율</th>
@@ -104,7 +110,7 @@ export async function renderProducts({ userDoc, container, showModal, closeModal
                  </tr>
                </thead>
                <tbody>
-                 ${products.map(p => productRow(p)).join('')}
+                 ${products.map(p => productRow(p, brandTypes)).join('')}
                </tbody>
              </table>
            </div>`
@@ -113,24 +119,25 @@ export async function renderProducts({ userDoc, container, showModal, closeModal
   `;
 
   document.getElementById('btn-add-product').addEventListener('click', () => {
-    openProductModal({ brandId, product: null, showModal, closeModal, container, userDoc });
+    openProductModal({ brandId, product: null, brandTypes, showModal, closeModal, container, userDoc });
   });
 
   container.querySelectorAll('.btn-product-detail').forEach(btn => {
     const pId = btn.dataset.id;
     const product = products.find(p => p.id === pId);
     btn.addEventListener('click', () => {
-      openProductDetail({ brandId, product, showModal, closeModal, container, userDoc });
+      openProductDetail({ brandId, product, brandTypes, showModal, closeModal, container, userDoc });
     });
   });
 }
 
-function productRow(p) {
+function productRow(p, brandTypes = []) {
   const canEdit = p.status === PRODUCT_STATUS.PENDING || p.status === PRODUCT_STATUS.REJECTED;
   return `
     <tr>
       <td style="font-weight:600">${p.product_name || '-'}</td>
       <td>${p.category || '-'}</td>
+      ${brandTypes.length > 1 ? `<td>${p.transaction_type ? `<span class="badge badge-gray">${p.transaction_type}</span>` : '-'}</td>` : ''}
       <td>${won(p.retail_price)}</td>
       <td>${won(p.supply_price)}</td>
       <td>${p.commission_rate != null ? p.commission_rate + '%' : '-'}</td>
@@ -145,14 +152,31 @@ function productRow(p) {
     </tr>`;
 }
 
-function openProductModal({ brandId, product, showModal, closeModal, container, userDoc }) {
+function openProductModal({ brandId, product, brandTypes = [], showModal, closeModal, container, userDoc }) {
   const isEdit = !!product;
+  // 거래유형 선택: brand_types가 2개 이상이면 선택, 1개면 자동
+  const txTypeHtml = (() => {
+    if (brandTypes.length === 0) return '';
+    if (brandTypes.length === 1) {
+      return `<input type="hidden" id="prod-tx-type" value="${brandTypes[0]}">`;
+    }
+    return `
+      <div class="form-group">
+        <label class="form-label">거래유형 <span style="color:var(--danger)">*</span></label>
+        <select id="prod-tx-type" class="form-input form-select">
+          <option value="">선택하세요</option>
+          ${brandTypes.map(t => `<option value="${t}"${(isEdit && product.transaction_type === t) ? ' selected' : ''}>${t}</option>`).join('')}
+        </select>
+      </div>`;
+  })();
+
   showModal(`
     <div class="modal-title">${isEdit ? '상품 수정 요청' : '신규 상품 등록'}</div>
     ${isEdit ? `<div style="background:var(--gray-50);border-radius:8px;padding:12px;margin-bottom:20px;font-size:13px;color:var(--gray-600)">
       현재 상태: ${statusBadge(product.status)}<br>
       공급가·수수료율은 운영자가 검토 후 설정합니다.
     </div>` : ''}
+    ${txTypeHtml}
     <div class="form-group">
       <label class="form-label">상품명 <span style="color:var(--danger)">*</span></label>
       <input id="prod-name" class="form-input" type="text"
@@ -199,21 +223,24 @@ function openProductModal({ brandId, product, showModal, closeModal, container, 
     const saveBtn = document.getElementById('btn-prod-save');
     errEl.textContent = '';
 
-    if (!name)  { errEl.textContent = '상품명을 입력해 주세요.'; return; }
-    if (!price) { errEl.textContent = '희망 소비자가를 입력해 주세요.'; return; }
+    const txType = document.getElementById('prod-tx-type')?.value || '';
+    if (!name)   { errEl.textContent = '상품명을 입력해 주세요.'; return; }
+    if (!price)  { errEl.textContent = '희망 소비자가를 입력해 주세요.'; return; }
+    if (brandTypes.length > 1 && !txType) { errEl.textContent = '거래유형을 선택해 주세요.'; return; }
 
     saveBtn.disabled = true;
     saveBtn.textContent = '처리 중...';
 
     try {
       const data = {
-        product_name: name,
-        category:     document.getElementById('prod-cat').value.trim(),
-        barcode:      document.getElementById('prod-barcode').value.trim(),
-        retail_price: Number(price),
-        description:  document.getElementById('prod-desc').value.trim(),
-        brand_id:     brandId,
-        updated_at:   serverTimestamp(),
+        product_name:     name,
+        category:         document.getElementById('prod-cat').value.trim(),
+        barcode:          document.getElementById('prod-barcode').value.trim(),
+        retail_price:     Number(price),
+        description:      document.getElementById('prod-desc').value.trim(),
+        transaction_type: txType || (brandTypes[0] || null),
+        brand_id:         brandId,
+        updated_at:       serverTimestamp(),
       };
 
       if (isEdit) {
