@@ -920,12 +920,22 @@ async function openJoinModal() {
         const sel = $('join-brand-selected');
         sel.textContent = '✓ ' + selectedBrandName;
         sel.style.display = 'block';
-        // 주관리자 존재 여부 비동기 확인
+        // 주관리자 존재 여부 확인 (brand_public_meta 우선, 없으면 서브컬렉션 직접 조회)
         try {
           const metaSnap = await getDoc(doc(db, 'brand_public_meta', selectedBrandId));
-          selectedBrandHasMain = metaSnap.exists() ? (metaSnap.data().has_main_manager === true) : false;
+          if (metaSnap.exists()) {
+            selectedBrandHasMain = metaSnap.data().has_main_manager === true;
+          } else {
+            // 메타 문서 없는 경우 서브컬렉션 직접 조회
+            const mgrSnap = await getDocs(query(
+              collection(db, 'brands', selectedBrandId, 'managers'),
+              where('role', '==', '주관리자'),
+            ));
+            selectedBrandHasMain = mgrSnap.docs.some(d => d.data().active !== false);
+          }
         } catch (_) {
-          selectedBrandHasMain = false;
+          // 조회 실패 시 차단 (안전한 방향)
+          selectedBrandHasMain = true;
         }
         updateJoinRoleHint();
       });
@@ -989,18 +999,23 @@ async function openJoinModal() {
     if (!contactEmail)     { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
     if (!role)             { errEl.textContent = '역할을 선택해 주세요.'; return; }
 
-    // 주관리자 중복 신청 차단
+    // 주관리자 중복 신청 차단 — 제출 직전 최신 상태 재확인
     if (role === '주관리자') {
-      let hasMain = selectedBrandHasMain;
-      if (!hasMain) {
-        // 최신 상태 재확인
-        try {
-          const metaSnap = await getDoc(doc(db, 'brand_public_meta', selectedBrandId));
-          hasMain = metaSnap.exists() ? (metaSnap.data().has_main_manager === true) : false;
-          selectedBrandHasMain = hasMain;
-        } catch (_) {}
+      try {
+        const metaSnap = await getDoc(doc(db, 'brand_public_meta', selectedBrandId));
+        if (metaSnap.exists()) {
+          selectedBrandHasMain = metaSnap.data().has_main_manager === true;
+        } else {
+          const mgrSnap = await getDocs(query(
+            collection(db, 'brands', selectedBrandId, 'managers'),
+            where('role', '==', '주관리자'),
+          ));
+          selectedBrandHasMain = mgrSnap.docs.some(d => d.data().active !== false);
+        }
+      } catch (_) {
+        selectedBrandHasMain = true; // 조회 실패 시 차단
       }
-      if (hasMain) {
+      if (selectedBrandHasMain) {
         errEl.textContent = '이 브랜드에는 이미 주관리자가 있습니다. 역할을 부관리자로 선택해 주세요.';
         updateJoinRoleHint();
         return;
@@ -1280,7 +1295,7 @@ async function renderPendingFull(container) {
   }
 
   const statusBadge = s => {
-    const map = { '제출됨': 'badge-yellow', '승인': 'badge-green', '거절': 'badge-red' };
+    const map = { '제출됨': 'badge-yellow', '승인': 'badge-green', '거절': 'badge-red', '취소됨': 'badge-gray' };
     return `<span class="badge ${map[s] || 'badge-gray'}">${s || '-'}</span>`;
   };
   const fmt = ts => {
@@ -1761,9 +1776,10 @@ async function renderBrandListPage(container) {
             const map = {
               '제출됨': isNew ? ['badge-yellow','심사 중'] : ['badge-yellow','검토 중'],
               '거절':   isNew ? ['badge-red','거절']      : ['badge-red','반려'],
+              '취소됨': ['badge-gray', '취소됨'],
             };
             const [cls, label] = map[item.status] || ['badge-gray', item.status || '-'];
-            return `<span class="badge ${cls}">${label}</span>`;
+            return `<span class="badge ${cls} status-badge">${label}</span>`;
           };
 
           const pendingSection = document.createElement('div');
@@ -1814,8 +1830,12 @@ async function renderBrandListPage(container) {
                 const colName = item.type === 'new' ? 'brand_applications' : 'brand_join_requests';
                 try {
                   await updateDoc(doc(db, colName, item.id), { status: STATUS.CANCELLED, cancelled_at: serverTimestamp() });
-                  card.remove();
-                  if (pendingList.children.length === 0) pendingSection.remove();
+                  // 카드 삭제 대신 취소됨 상태로 갱신
+                  item.status = STATUS.CANCELLED;
+                  const cancelBtn = card.querySelector('.btn-cancel-pending');
+                  if (cancelBtn) cancelBtn.remove();
+                  const statusSpanEl = card.querySelector('.status-badge');
+                  if (statusSpanEl) { statusSpanEl.className = 'badge badge-gray status-badge'; statusSpanEl.textContent = '취소됨'; }
                 } catch (_) { alert('취소 중 오류가 발생했습니다.'); }
               });
             }
