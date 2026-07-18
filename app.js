@@ -56,10 +56,12 @@ function showLogin()  {
 function showApp()    { loginScreen.style.display = 'none'; appScreen.style.display = 'block'; showLoading(false); }
 
 // ── 현재 사용자 상태 ──
-let currentUser       = null;
-let currentUserDoc    = null;
-let currentManagerDoc = null; // managers/{email} 문서 (브랜드 담당자의 소스)
-let activeBrandId     = null; // 현재 활성 브랜드
+let currentUser         = null;
+let currentUserDoc      = null;
+let currentManagerDoc   = null; // managers/{email} 문서 (브랜드 담당자의 소스)
+let activeBrandId       = null; // 현재 활성 브랜드
+let currentPermissions  = null; // null = 주관리자(전체 허용), {} = 부관리자 권한 맵
+let currentManagerRole  = null; // 현재 브랜드에서의 역할
 
 // managers 문서에서 담당 브랜드 ID 목록 반환
 function getManagerBrandIds() {
@@ -73,6 +75,34 @@ function getManagerBrandIds() {
 function setActiveBrand(brandId) {
   activeBrandId = brandId;
   if (currentUserDoc) currentUserDoc.brand_id = brandId;
+}
+
+// 현재 브랜드에서 로그인 계정의 권한 로드
+async function loadBrandPermissions(brandId) {
+  if (!currentUser || !brandId) {
+    currentPermissions = null;
+    currentManagerRole = null;
+    return;
+  }
+  const email = normalizeEmail(currentUser.email);
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'brands', brandId, 'managers'),
+      where('login_google_email', '==', email),
+    ));
+    if (!snap.empty) {
+      const data = snap.docs[0].data();
+      currentManagerRole = data.role || null;
+      // 주관리자는 null(전체 허용), 부관리자는 permissions 맵 (없으면 빈 객체 = 전부 기본 허용)
+      currentPermissions = currentManagerRole === '주관리자' ? null : (data.permissions || {});
+    } else {
+      currentManagerRole = null;
+      currentPermissions = {};
+    }
+  } catch (_) {
+    currentManagerRole = null;
+    currentPermissions = null;
+  }
 }
 
 // ── 사이드바 배지 ──
@@ -415,6 +445,8 @@ async function renderApp(memberStatus, isNewLink = false) {
       setActiveBrand(ids[0]);
     }
   }
+  // 활성 브랜드의 권한 로드 (주관리자 여부, 개별 권한 맵)
+  await loadBrandPermissions(activeBrandId);
   updateSidebarUser(memberStatus);
 
   // 새로고침 시 이전 페이지 복원 (해시가 있고, 해당 계정 권한에 맞는 페이지일 때)
@@ -600,8 +632,9 @@ async function renderSidebar(memberStatus) {
     });
 
     popup.querySelectorAll('.bsp-switch-item').forEach(el => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', async () => {
         setActiveBrand(el.dataset.id);
+        await loadBrandPermissions(el.dataset.id);
         closePopup();
         renderSidebar(STATUS.BRAND);
         renderPage('dashboard');
@@ -663,11 +696,13 @@ const PAGE_TITLES = {
 
 function ctx() {
   return {
-    userDoc: currentUserDoc,
-    user:    currentUser,
-    container: $('main-content'),
+    userDoc:      currentUserDoc,
+    user:         currentUser,
+    container:    $('main-content'),
     showModal,
     closeModal,
+    permissions:  currentPermissions,
+    managerRole:  currentManagerRole,
   };
 }
 
@@ -820,6 +855,8 @@ async function openJoinModal() {
   let selectedBrandName = '';
   let allBrands = [];
 
+  let selectedBrandHasMain = false; // brand_public_meta 기반 주관리자 존재 여부
+
   showModal(`
     <div class="modal-title">기존 브랜드 담당자로 합류 신청</div>
     <div class="form-group">
@@ -841,7 +878,7 @@ async function openJoinModal() {
     <div class="form-group">
       <label class="form-label">역할 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('join-role')}
-      <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
+      <div id="join-role-hint" class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
     <div id="join-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-join-submit" style="margin-top:8px">신청하기</button>
@@ -874,7 +911,7 @@ async function openJoinModal() {
       div.style.cssText = 'padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:13px;font-weight:600;transition:background 0.1s';
       div.addEventListener('mouseover', () => div.style.background = 'var(--gray-100)');
       div.addEventListener('mouseout', () => div.style.background = '');
-      div.addEventListener('click', () => {
+      div.addEventListener('click', async () => {
         selectedBrandId   = div.dataset.id;
         selectedBrandName = div.dataset.name;
         $('join-brand-results').innerHTML = '';
@@ -882,6 +919,14 @@ async function openJoinModal() {
         const sel = $('join-brand-selected');
         sel.textContent = '✓ ' + selectedBrandName;
         sel.style.display = 'block';
+        // 주관리자 존재 여부 비동기 확인
+        try {
+          const metaSnap = await getDoc(doc(db, 'brand_public_meta', selectedBrandId));
+          selectedBrandHasMain = metaSnap.exists() ? (metaSnap.data().has_main_manager === true) : false;
+        } catch (_) {
+          selectedBrandHasMain = false;
+        }
+        updateJoinRoleHint();
       });
       resultsContainer.appendChild(div);
     });
@@ -900,6 +945,23 @@ async function openJoinModal() {
       brandsLoaded = false;
     }
   }
+
+  function updateJoinRoleHint() {
+    const hintEl = $('join-role-hint');
+    const roleEl = $('join-role');
+    if (!hintEl || !roleEl) return;
+    if (selectedBrandHasMain && roleEl.value === '주관리자') {
+      hintEl.textContent = '이 브랜드에는 이미 주관리자가 있습니다. 부관리자로 신청해 주세요.';
+      hintEl.style.color = 'var(--danger)';
+      hintEl.style.fontWeight = '600';
+    } else {
+      hintEl.textContent = '주관리자는 브랜드당 1명만 설정할 수 있습니다.';
+      hintEl.style.color = '';
+      hintEl.style.fontWeight = '';
+    }
+  }
+
+  $('join-role').addEventListener('change', updateJoinRoleHint);
 
   let searchTimer;
   let isComposing = false;
@@ -925,6 +987,24 @@ async function openJoinModal() {
     if (!phone)            { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail)     { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
     if (!role)             { errEl.textContent = '역할을 선택해 주세요.'; return; }
+
+    // 주관리자 중복 신청 차단
+    if (role === '주관리자') {
+      let hasMain = selectedBrandHasMain;
+      if (!hasMain) {
+        // 최신 상태 재확인
+        try {
+          const metaSnap = await getDoc(doc(db, 'brand_public_meta', selectedBrandId));
+          hasMain = metaSnap.exists() ? (metaSnap.data().has_main_manager === true) : false;
+          selectedBrandHasMain = hasMain;
+        } catch (_) {}
+      }
+      if (hasMain) {
+        errEl.textContent = '이 브랜드에는 이미 주관리자가 있습니다. 역할을 부관리자로 선택해 주세요.';
+        updateJoinRoleHint();
+        return;
+      }
+    }
 
     $('btn-join-submit').disabled = true;
     $('btn-join-submit').textContent = '신청 중...';

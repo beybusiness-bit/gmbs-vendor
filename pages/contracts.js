@@ -1,5 +1,13 @@
 import { db, collection, getDocs, query } from '../firebase-init.js';
 
+function noPerm(label) {
+  return `<div style="max-width:480px;margin:80px auto;text-align:center;padding:40px">
+    <div style="font-size:48px;margin-bottom:16px">🔒</div>
+    <h3 style="font-size:17px;font-weight:700;margin-bottom:8px">접근 권한이 없습니다</h3>
+    <p style="font-size:14px;color:var(--gray-500);line-height:1.6">[${label}] 메뉴에 대한 접근 권한이 없습니다.<br>주관리자에게 권한 부여를 요청하세요.</p>
+  </div>`;
+}
+
 function fmt(ts) {
   if (!ts) return '-';
   const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -14,7 +22,10 @@ const STATUS_META = {
   '취소됨':     { badge: 'badge-red',    icon: '❌', label: '취소됨',      msg: '계약 요청이 취소되었습니다. 관리자에게 문의해 주세요.' },
 };
 
-export async function renderContracts({ userDoc, container }) {
+export async function renderContracts({ userDoc, container, permissions }) {
+  if (permissions && permissions['contracts.view'] === false) {
+    container.innerHTML = noPerm('입점 계약 관리'); return;
+  }
   const brandId = userDoc?.brand_id;
   if (!brandId) {
     container.innerHTML = `<div class="pending-wrap"><div class="pending-icon">⚠️</div>

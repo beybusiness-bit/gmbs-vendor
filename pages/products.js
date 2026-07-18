@@ -3,6 +3,14 @@ import {
   addDoc, updateDoc, doc, serverTimestamp,
 } from '../firebase-init.js';
 
+function noPerm(label) {
+  return `<div style="max-width:480px;margin:80px auto;text-align:center;padding:40px">
+    <div style="font-size:48px;margin-bottom:16px">🔒</div>
+    <h3 style="font-size:17px;font-weight:700;margin-bottom:8px">접근 권한이 없습니다</h3>
+    <p style="font-size:14px;color:var(--gray-500);line-height:1.6">[${label}] 메뉴에 대한 접근 권한이 없습니다.<br>주관리자에게 권한 부여를 요청하세요.</p>
+  </div>`;
+}
+
 const PRODUCT_STATUS = {
   PENDING:   '등록신청',
   APPROVED:  '승인',
@@ -33,7 +41,10 @@ function won(n) {
   return Number(n).toLocaleString('ko-KR') + '원';
 }
 
-export async function renderProducts({ userDoc, container, showModal, closeModal }) {
+export async function renderProducts({ userDoc, container, showModal, closeModal, permissions }) {
+  if (permissions && permissions['products.view'] === false) {
+    container.innerHTML = noPerm('상품 관리'); return;
+  }
   const brandId = userDoc?.brand_id;
   if (!brandId) {
     container.innerHTML = `<div class="pending-wrap"><div class="pending-icon">⚠️</div>

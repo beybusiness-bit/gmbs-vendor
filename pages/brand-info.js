@@ -43,7 +43,19 @@ function sectionHeader(title) {
   return `<div style="font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.04em;margin:20px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--gray-100)">${title}</div>`;
 }
 
-export async function renderBrandInfo({ userDoc, container, showModal, closeModal }) {
+export async function renderBrandInfo({ userDoc, container, showModal, closeModal, permissions }) {
+  if (permissions && permissions['brand-info.view'] === false) {
+    container.innerHTML = `<div style="max-width:480px;margin:80px auto;text-align:center;padding:40px">
+      <div style="font-size:48px;margin-bottom:16px">🔒</div>
+      <h3 style="font-size:17px;font-weight:700;margin-bottom:8px">접근 권한이 없습니다</h3>
+      <p style="font-size:14px;color:var(--gray-500);line-height:1.6">[브랜드 정보] 메뉴에 대한 접근 권한이 없습니다.<br>주관리자에게 권한 부여를 요청하세요.</p>
+    </div>`;
+    return;
+  }
+  const canEditBrandInfo = !permissions || permissions['brand-info.edit'] !== false;
+  const canViewSettlement = !permissions || permissions['settlement-info.view'] !== false;
+  const canEditSettlement = !permissions || permissions['settlement-info.edit'] !== false;
+
   const brandId = userDoc?.brand_id;
   if (!brandId) {
     container.innerHTML = `<div class="pending-wrap"><div class="pending-icon">⚠️</div>
@@ -146,9 +158,9 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
               <div style="margin-top:6px">${statusBadge(onboardingStatus)}</div>
             </div>
           </div>
-          <button class="btn btn-outline" id="btn-edit-brand" style="width:auto;padding:10px 20px;flex-shrink:0">
+          ${canEditBrandInfo ? `<button class="btn btn-outline" id="btn-edit-brand" style="width:auto;padding:10px 20px;flex-shrink:0">
             ✏️ 정보 수정
-          </button>
+          </button>` : ''}
         </div>
 
         <div class="info-grid">
@@ -166,12 +178,13 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
           </div>` : ''}
       </div>
 
-      ${brandType === 'pb' ? '' : `<div class="card" style="margin-bottom:20px">
+      ${(brandType === 'pb' || !canViewSettlement) ? '' : `<div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
           <div style="font-weight:700">계약 및 정산 정보</div>
-          ${hasSettlement
+          ${canEditSettlement ? (hasSettlement
             ? `<button class="btn btn-outline" id="btn-edit-settlement" style="width:auto;padding:8px 16px;font-size:13px;margin-top:0">✏️ 수정</button>`
-            : `<button class="btn btn-primary" id="btn-edit-settlement" style="width:auto;padding:8px 16px;font-size:13px;margin-top:0">+ 입력</button>`}
+            : `<button class="btn btn-primary" id="btn-edit-settlement" style="width:auto;padding:8px 16px;font-size:13px;margin-top:0">+ 입력</button>`)
+          : ''}
         </div>
         <p style="font-size:12px;color:var(--gray-500);margin-bottom:12px;line-height:1.6">
           입점 계약 체결 및 정산 연결을 위해 필요한 정보를 요청합니다. 민감한 정보는 암호화 저장됩니다.
@@ -213,7 +226,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
     </div>
   `;
 
-  document.getElementById('btn-edit-brand').addEventListener('click', () => {
+  document.getElementById('btn-edit-brand')?.addEventListener('click', () => {
     openEditBrandModal({ brandId, brand: b, showModal, closeModal, container, userDoc });
   });
   document.getElementById('btn-edit-settlement')?.addEventListener('click', () => {

@@ -2,6 +2,39 @@ import {
   db, collection, getDocs, query, where, doc, addDoc, updateDoc, deleteDoc, getDoc, setDoc, serverTimestamp,
 } from '../firebase-init.js';
 
+// 조정 가능한 권한 목록 (주관리자가 부관리자별로 설정)
+const ADJUSTABLE_PERMISSIONS = [
+  { key: 'brand-info.view',          label: '브랜드 정보 보기',    group: '브랜드' },
+  { key: 'brand-info.edit',          label: '브랜드 정보 수정',    group: '브랜드' },
+  { key: 'settlement-info.view',     label: '정산 정보 보기',      group: '브랜드' },
+  { key: 'settlement-info.edit',     label: '정산 정보 수정',      group: '브랜드' },
+  { key: 'contracts.view',           label: '입점 계약 관리',      group: '브랜드' },
+  { key: 'products.view',            label: '상품 목록 보기',      group: '상품·정산' },
+  { key: 'products.create',          label: '상품 등록 신청',      group: '상품·정산' },
+  { key: 'products.edit',            label: '상품 수정 요청',      group: '상품·정산' },
+  { key: 'inventory.view',           label: '재고·판매 조회',      group: '상품·정산' },
+  { key: 'settlements.view',         label: '정산 내역 조회',      group: '상품·정산' },
+  { key: 'customer-inquiries.view',  label: '고객 문의 보기',      group: '고객 지원' },
+  { key: 'customer-inquiries.reply', label: '고객 문의 답변',      group: '고객 지원' },
+  { key: 'inquiries.view',           label: '1:1 문의 보기',       group: '안내' },
+  { key: 'inquiries.create',         label: '1:1 문의 작성',       group: '안내' },
+];
+
+// 브랜드의 주관리자 존재 여부를 brand_public_meta에 동기화
+async function syncBrandPublicMeta(brandId) {
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'brands', brandId, 'managers'),
+      where('role', '==', '주관리자'),
+    ));
+    const hasMain = snap.docs.some(d => d.data().active !== false);
+    await setDoc(doc(db, 'brand_public_meta', brandId), {
+      has_main_manager: hasMain,
+      updated_at: serverTimestamp(),
+    }, { merge: true });
+  } catch (_) { /* 동기화 실패 무시 */ }
+}
+
 export async function renderManagers({ userDoc, user, container, showModal, closeModal }) {
   const brandId = userDoc?.brand_id;
   if (!brandId) {
@@ -94,6 +127,17 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
     openManagerModal({ brandId, manager: null, showModal, closeModal, container, userDoc, user });
   });
 
+  // 카드 클릭 → 권한 상세/편집 모달
+  container.querySelectorAll('.manager-card').forEach(card => {
+    const id = card.dataset.managerId;
+    const manager = managers.find(m => m.id === id);
+    card.addEventListener('click', e => {
+      // 수정/삭제 버튼 클릭 시 카드 클릭 이벤트 무시
+      if (e.target.closest('button')) return;
+      openManagerDetailModal({ brandId, manager, managers, isMain, showModal, closeModal, container, userDoc, user });
+    });
+  });
+
   container.querySelectorAll('.btn-edit-manager').forEach(btn => {
     const id = btn.dataset.id;
     const manager = managers.find(m => m.id === id);
@@ -134,7 +178,7 @@ function managerCard(m, myEmail, isMain) {
   const canEdit = isMain || isMe;
   const canDelete = isMain && !isMe;
   return `
-    <div class="card" style="margin-bottom:12px">
+    <div class="card manager-card" data-manager-id="${m.id}" style="margin-bottom:12px;cursor:pointer" title="클릭하여 상세 정보 보기">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
@@ -303,6 +347,8 @@ function openApproveConfirm({ brandId, joinReq, managers, user, showModal, close
       }
 
       closeModal();
+      // brand_public_meta 동기화 (주관리자 추가 시 has_main_manager = true)
+      if (role === '주관리자') syncBrandPublicMeta(brandId);
       await rerender();
     } catch (e) {
       errEl.textContent = '처리 중 오류가 발생했습니다.';
@@ -410,6 +456,7 @@ function openDeleteConfirm({ brandId, manager, showModal, closeModal, container,
       }
 
       closeModal();
+      syncBrandPublicMeta(brandId); // 주관리자 삭제 시 메타 갱신
       await renderManagers({ userDoc, user, container, showModal, closeModal });
     } catch (e) {
       errEl.textContent = '삭제 중 오류가 발생했습니다.';
@@ -578,11 +625,124 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
       }
 
       closeModal();
+      // brand_public_meta 동기화 (주관리자 추가/역할 변경 시)
+      syncBrandPublicMeta(brandId);
       await renderManagers({ userDoc, user, container, showModal, closeModal });
     } catch (e) {
       errEl.textContent = '저장 중 오류가 발생했습니다.';
       saveBtn.disabled = false;
       saveBtn.textContent = isEdit ? '저장' : '추가';
+    }
+  });
+}
+
+// ── 담당자 상세 / 권한 편집 모달 ──
+async function openManagerDetailModal({ brandId, manager, managers, isMain, showModal, closeModal, container, userDoc, user }) {
+  const isMe = (manager.login_google_email || '').toLowerCase() === ((user.email || '').toLowerCase());
+  const isSubjectMain = manager.role === '주관리자';
+  const perm = manager.permissions || {};
+
+  // 그룹별 권한 목록 렌더
+  const groups = [...new Set(ADJUSTABLE_PERMISSIONS.map(p => p.group))];
+  const permRows = isSubjectMain
+    ? `<div style="color:var(--gray-500);font-size:13px;padding:12px 0">주관리자는 모든 권한을 가집니다.</div>`
+    : groups.map(g => {
+        const items = ADJUSTABLE_PERMISSIONS.filter(p => p.group === g);
+        return `
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:.05em;margin-bottom:8px">${g.toUpperCase()}</div>
+            ${items.map(p => {
+              const granted = perm[p.key] !== false;
+              return `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray-100)">
+                  <span style="font-size:13px">${p.label}</span>
+                  <label class="perm-toggle" style="position:relative;display:inline-block;width:40px;height:22px;cursor:${isMain ? 'pointer' : 'default'}">
+                    <input type="checkbox" data-perm-key="${p.key}" ${granted ? 'checked' : ''} ${!isMain ? 'disabled' : ''}
+                      style="opacity:0;width:0;height:0;position:absolute">
+                    <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:${granted ? 'var(--primary)' : 'var(--gray-300)'};border-radius:22px;transition:background .2s">
+                      <span style="position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:3px;left:${granted ? '21px' : '3px'};transition:left .2s"></span>
+                    </span>
+                  </label>
+                </div>`;
+            }).join('')}
+          </div>`;
+      }).join('');
+
+  showModal(`
+    <div class="modal-title">담당자 상세</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--gray-100)">
+      <div style="width:44px;height:44px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--primary);flex-shrink:0">
+        ${(manager.name || '?')[0].toUpperCase()}
+      </div>
+      <div>
+        <div style="font-size:16px;font-weight:700">${manager.name || '-'}${isMe ? ' <span style="font-size:12px;background:#eff6ff;color:var(--primary);padding:2px 6px;border-radius:6px">나</span>' : ''}</div>
+        <div style="font-size:13px;color:var(--gray-500);margin-top:2px">
+          ${manager.role === '주관리자'
+            ? '<span style="color:#8c52ff;font-weight:700">주관리자</span>'
+            : '<span style="color:#2563eb">부관리자</span>'}
+          ${manager.phone ? ` · ${manager.phone}` : ''}
+        </div>
+        ${manager.contact_email ? `<div style="font-size:12px;color:var(--gray-400)">✉️ ${manager.contact_email}</div>` : ''}
+        ${manager.login_google_email ? `<div style="font-size:12px;color:var(--gray-400)">🔑 ${manager.login_google_email}</div>` : ''}
+      </div>
+    </div>
+    <div style="margin-bottom:8px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px">메뉴 접근 권한</div>
+      ${!isMain && !isSubjectMain ? '<div style="background:#fef3c7;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">권한 수정은 주관리자만 가능합니다.</div>' : ''}
+      ${permRows}
+    </div>
+    ${isMain && !isSubjectMain ? `
+      <div id="perm-save-error" class="form-error"></div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button class="btn btn-outline" id="btn-perm-cancel" style="flex:1">닫기</button>
+        <button class="btn btn-primary" id="btn-perm-save" style="flex:2">권한 저장</button>
+      </div>` : `
+      <button class="btn btn-outline" id="btn-perm-cancel" style="width:100%;margin-top:8px">닫기</button>`}
+  `);
+
+  // 토글 UI 인터랙션
+  if (isMain && !isSubjectMain) {
+    document.querySelectorAll('.perm-toggle input[data-perm-key]').forEach(input => {
+      input.addEventListener('change', () => {
+        const span = input.nextElementSibling;
+        const knob = span.querySelector('span');
+        if (input.checked) {
+          span.style.background = 'var(--primary)';
+          knob.style.left = '21px';
+        } else {
+          span.style.background = 'var(--gray-300)';
+          knob.style.left = '3px';
+        }
+      });
+    });
+  }
+
+  document.getElementById('btn-perm-cancel').addEventListener('click', closeModal);
+
+  const saveBtn = document.getElementById('btn-perm-save');
+  if (!saveBtn) return;
+
+  saveBtn.addEventListener('click', async () => {
+    const errEl = document.getElementById('perm-save-error');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '저장 중...';
+
+    const newPerms = {};
+    document.querySelectorAll('.perm-toggle input[data-perm-key]').forEach(input => {
+      newPerms[input.dataset.permKey] = input.checked;
+    });
+
+    try {
+      await updateDoc(doc(db, 'brands', brandId, 'managers', manager.id), {
+        permissions: newPerms,
+        updated_at:  serverTimestamp(),
+      });
+      closeModal();
+      await renderManagers({ userDoc, user, container, showModal, closeModal });
+    } catch (e) {
+      errEl.textContent = '저장 중 오류가 발생했습니다.';
+      saveBtn.disabled = false;
+      saveBtn.textContent = '권한 저장';
     }
   });
 }

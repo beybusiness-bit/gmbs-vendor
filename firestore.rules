@@ -111,7 +111,7 @@ service cloud.firestore {
         allow create: if request.auth != null && isBrandMember(brandId);
         allow update: if request.auth != null && isBrandMember(brandId)
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['name', 'role', 'phone', 'contact_email', 'updated_at']);
+               .hasOnly(['name', 'role', 'phone', 'contact_email', 'permissions', 'updated_at']);
         allow delete: if request.auth != null && isBrandMember(brandId);
       }
 
@@ -198,6 +198,12 @@ service cloud.firestore {
     match /faq_items/{docId} {
       allow read: if true;
       allow write: if false;
+    }
+
+    // ── brand_public_meta 컬렉션 (주관리자 존재 여부 등 공개 메타데이터) ──
+    match /brand_public_meta/{brandId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isBrandMember(brandId);
     }
 
     // ── customer_inquiries 컬렉션 ──

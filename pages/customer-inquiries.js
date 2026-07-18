@@ -2,6 +2,14 @@ import {
   db, collection, query, where, getDocs, addDoc, updateDoc, doc,
 } from '../firebase-init.js';
 
+function noPerm(label) {
+  return `<div style="max-width:480px;margin:80px auto;text-align:center;padding:40px">
+    <div style="font-size:48px;margin-bottom:16px">🔒</div>
+    <h3 style="font-size:17px;font-weight:700;margin-bottom:8px">접근 권한이 없습니다</h3>
+    <p style="font-size:14px;color:var(--gray-500);line-height:1.6">[${label}] 메뉴에 대한 접근 권한이 없습니다.<br>주관리자에게 권한 부여를 요청하세요.</p>
+  </div>`;
+}
+
 const STATUS_META = {
   '답변대기':   { badge: 'badge-yellow', label: '답변 필요',   icon: '🟡' },
   '재응답 필요': { badge: 'badge-red',    label: '재응답 요청됨', icon: '🔴' },
@@ -16,7 +24,10 @@ function today() {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
-export async function renderCustomerInquiries({ userDoc, user, container, showModal, closeModal }) {
+export async function renderCustomerInquiries({ userDoc, user, container, showModal, closeModal, permissions }) {
+  if (permissions && permissions['customer-inquiries.view'] === false) {
+    container.innerHTML = noPerm('고객 문의'); return;
+  }
   const brandId = userDoc?.brand_id;
   if (!brandId) {
     container.innerHTML = `<div class="pending-wrap"><div class="pending-icon">⚠️</div>
