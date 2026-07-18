@@ -106,14 +106,10 @@ async function markBadgeRead(page) {
     _saveReadTs('notices', Date.now());
 
   } else if (page === 'brand-list') {
-    const [appsSnap, joinSnap] = await Promise.all([
-      getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
-      getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
-    ]);
+    const { apps: myApps, joins: myJoins } = await fetchMyApplications().catch(() => ({ apps: [], joins: [] }));
     const seen = _getReadIds('brand-list');
-    [...appsSnap.docs, ...joinSnap.docs].forEach(d => {
-      const s = d.data().status;
-      if (s === STATUS.APPROVED || s === STATUS.REJECTED) seen.add(d.id);
+    [...myApps, ...myJoins].forEach(item => {
+      if (item.status === STATUS.APPROVED || item.status === STATUS.REJECTED) seen.add(item.id);
     });
     _saveReadIds('brand-list', seen);
 
@@ -178,13 +174,9 @@ async function computeBadges() {
     } else if (!isBrand) {
       // 담당 브랜드 목록: 거절 결과 중 아직 안 본 것
       const seenApps = _getReadIds('brand-list');
-      const [appsSnap, joinSnap] = await Promise.all([
-        getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
-        getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
-      ]);
-      badges['brand-list'] = [...appsSnap.docs, ...joinSnap.docs].filter(d => {
-        const s = d.data().status;
-        return s === STATUS.REJECTED && !seenApps.has(d.id);
+      const { apps: myApps, joins: myJoins } = await fetchMyApplications();
+      badges['brand-list'] = [...myApps, ...myJoins].filter(item => {
+        return item.status === STATUS.REJECTED && !seenApps.has(item.id);
       }).length;
     }
   } catch (_) { /* 배지 계산 실패는 조용히 무시 */ }
@@ -427,12 +419,8 @@ async function renderApp(memberStatus, isNewLink = false) {
     renderPage('dashboard');
   } else {
     // GENERAL: 신청 내역 있으면 담당 브랜드 목록, 없으면 새 브랜드 담당 등록 페이지
-    const uid = currentUser.uid;
-    const [appsSnap, joinSnap] = await Promise.all([
-      getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid), limit(1))),
-      getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid), limit(1))),
-    ]).catch(() => [{ empty: true }, { empty: true }]);
-    renderPage((!appsSnap.empty || !joinSnap.empty) ? 'brand-list' : 'member-onboarding');
+    const { apps: myApps, joins: myJoins } = await fetchMyApplications().catch(() => ({ apps: [], joins: [] }));
+    renderPage((myApps.length > 0 || myJoins.length > 0) ? 'brand-list' : 'member-onboarding');
   }
   showApp();
   // 앱 진입 시 초기 배지 계산 (백그라운드)
@@ -1349,6 +1337,33 @@ function showApplicationDetail(item) {
   document.getElementById('btn-detail-close').addEventListener('click', closeModal);
 }
 
+// ── 내 신청 목록 조회 (uid + email 양쪽 조회 후 중복 제거) ──
+// 일부 문서는 applicant_uid 없이 applicant_email만 저장됐을 수 있어 양쪽 쿼리로 보완.
+async function fetchMyApplications() {
+  const uid   = currentUser.uid;
+  const email = normalizeEmail(currentUser.email || '');
+  const col   = n => collection(db, n);
+  const byUid   = n => getDocs(query(col(n), where('applicant_uid',   '==', uid)));
+  const byEmail = n => getDocs(query(col(n), where('applicant_email', '==', email)));
+
+  const [auSnap, aeSnap, juSnap, jeSnap] = await Promise.all([
+    byUid('brand_applications'),  byEmail('brand_applications'),
+    byUid('brand_join_requests'), byEmail('brand_join_requests'),
+  ]);
+
+  function merge(uSnap, eSnap, type) {
+    const seen = new Set();
+    return [...uSnap.docs, ...eSnap.docs]
+      .filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true; })
+      .map(d => ({ id: d.id, type, ...d.data() }));
+  }
+
+  return {
+    apps:  merge(auSnap, aeSnap, 'new'),
+    joins: merge(juSnap, jeSnap, 'join'),
+  };
+}
+
 // ── 신청 목록 공통 필터 ──
 // 승인된 항목은 어떤 경우든 처리 완료로 간주하여 목록에서 제외.
 // (어드민의 브랜드 삭제 방식·brand_id 유무 등 엣지케이스를 모두 커버)
@@ -1360,15 +1375,11 @@ function filterDeletedBrandApps(apps, joins) {
 
 // ── 심사중 화면 (내 신청 현황 표시) ──
 async function renderPendingFull(container) {
-  const uid = currentUser.uid;
   container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
 
-  const appsQ = query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid));
-  const joinQ = query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid));
-  const [appsSnap, joinSnap] = await Promise.all([getDocs(appsQ), getDocs(joinQ)]);
-
-  const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'apply', ...d.data() }));
-  const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join',  ...d.data() }));
+  const { apps: rawApps, joins: rawJoins } = await fetchMyApplications();
+  const apps  = rawApps.map(a => ({ ...a, type: 'apply' }));
+  const joins = rawJoins;
   const filtered = await filterDeletedBrandApps(apps, joins);
   const all   = filtered.sort((a, b) => {
     const ta = a.submitted_at?.toMillis?.() || 0;
@@ -1823,12 +1834,7 @@ async function renderBrandListPage(container) {
 
       // 신청 중인 브랜드 (미승인) 목록도 하단에 표시
       try {
-        const [pendingAppsSnap, pendingJoinSnap] = await Promise.all([
-          getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
-          getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
-        ]);
-        const pendingApps  = pendingAppsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }));
-        const pendingJoins = pendingJoinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
+        const { apps: pendingApps, joins: pendingJoins } = await fetchMyApplications();
         const pendingAll = [...pendingApps, ...pendingJoins]
           .filter(i => i.status !== STATUS.APPROVED)
           .sort((a, b) => (b.submitted_at?.toMillis?.() || 0) - (a.submitted_at?.toMillis?.() || 0));
@@ -1906,12 +1912,7 @@ async function renderBrandListPage(container) {
 
   // 일반 회원: 신청 현황 표시
   try {
-    const [appsSnap, joinSnap] = await Promise.all([
-      getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
-      getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
-    ]);
-    const appsRaw = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }));
-    const joinsRaw = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
+    const { apps: appsRaw, joins: joinsRaw } = await fetchMyApplications();
     const filteredAll = await filterDeletedBrandApps(appsRaw, joinsRaw);
     const apps  = filteredAll.filter(i => i.type === 'new');
     const joins = filteredAll.filter(i => i.type === 'join');
