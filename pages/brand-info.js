@@ -91,7 +91,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       </div>`;
   })();
 
-  // 정산 정보 (운영자 확정값: 읽기 전용)
+  // 운영자 확정 정보 (읽기 전용)
   const adminConfirmedHtml = (() => {
     const rows = [];
     if (brandType) rows.push(infoRow('거래유형', brandType));
@@ -102,38 +102,41 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
           <code style="background:var(--primary-light);color:var(--primary);padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.05em">${esc(b.brand_code)}</code>
         </span>
       </div>`);
-    const commissionRate = b.fee_info?.commission_rate;
-    if (brandType === '위탁' && commissionRate != null) {
-      rows.push(infoRow('위탁판매대행수수료', `${commissionRate}%`));
-    }
     return rows.join('');
   })();
 
   // 계약 및 정산 정보 (벤더 입력 — 민감 정보 마스킹)
+  // 순서: 사업자여부 → 사번 → 과세 → 상호 → 대표자 → 등록일 → 주소 → 주민 → 은행 → 예금 → 계좌 → 수수료
   const settlementHtml = (() => {
-    if (!si || (!si.bank_name && !si.account_holder)) return '';
+    if (!si || !si.business_type) return '';
     const bizLabel = si.business_type === 'business' ? '사업자' : si.business_type === 'individual' ? '개인(사업자없음)' : '';
     const rows = [];
     if (bizLabel) rows.push(infoRow('사업자 여부', bizLabel));
-    if (si.address) rows.push(infoRow('주소', esc(si.address)));
     if (si.business_type === 'business') {
+      if (si.business_reg_number) rows.push(infoRow('사업자등록번호', si.business_reg_number));
+      if (si.taxation_type)       rows.push(infoRow('과세유형', si.taxation_type));
       if (si.corp_name)           rows.push(infoRow('상호', esc(si.corp_name)));
       if (si.representative_name) rows.push(infoRow('대표자명', esc(si.representative_name)));
       if (si.business_start_date) rows.push(infoRow('사업자등록일', si.business_start_date));
-      if (si.business_reg_number) rows.push(infoRow('사업자등록번호', si.business_reg_number));
-      if (si.taxation_type)       rows.push(infoRow('과세유형', si.taxation_type));
+      if (si.address)             rows.push(infoRow('사업장 주소', esc(si.address)));
     }
-    if (si.business_type === 'individual' && si.resident_number) {
-      rows.push(infoRow('주민등록번호', '••••••-•••••••'));
+    if (si.business_type === 'individual') {
+      if (si.resident_number) rows.push(infoRow('주민등록번호', '••••••-•••••••'));
+      if (si.address)         rows.push(infoRow('주소', esc(si.address)));
     }
-    if (si.bank_name) rows.push(infoRow('은행명', si.bank_name));
+    if (si.bank_name)      rows.push(infoRow('은행명', si.bank_name));
     if (si.account_holder) rows.push(infoRow('예금주명', si.account_holder));
     if (si.account_number) rows.push(infoRow('계좌번호', '••••••-••-••••••'));
+    const commissionRate = b.fee_info?.commission_rate;
+    if (brandType === '위탁' && commissionRate != null) {
+      rows.push(infoRow('위탁판매수수료', `${commissionRate}%`));
+    }
     return rows.join('');
   })();
 
   const hasSettlement = settlementHtml.length > 0;
-  const needsContractInfo = onboardingStatus === '계약 정보 입력 필요' && !hasSettlement;
+  const hasBank = !!(si.bank_name && si.account_holder);
+  const needsContractInfo = onboardingStatus === '계약 정보 입력 필요' && !hasBank;
 
   const contractCompleteNotice = onboardingStatus === '계약완료' ? `
     <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
@@ -490,7 +493,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
 
     ${brandType === '위탁' ? `
     <div class="form-group">
-      <label class="form-label">위탁판매대행수수료 (%)</label>
+      <label class="form-label">위탁판매수수료 (%)</label>
       <input id="edit-commission-rate" class="form-input" type="number" min="0" max="100" step="0.1"
         value="${b.fee_info?.commission_rate ?? ''}" placeholder="운영자 확정 전 표시 안 됨" readonly
         style="background:var(--gray-50);color:var(--gray-400)">
