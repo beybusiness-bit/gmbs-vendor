@@ -16,6 +16,27 @@ export async function renderPersons({ userDoc, user, container, showModal, close
   const persons = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   const myEmail = (user.email || '').toLowerCase().trim();
 
+  // 현재 로그인 계정이 persons 서브컬렉션에 없으면 자동 추가
+  const alreadyIn = persons.some(p =>
+    (p.login_google_email || '').toLowerCase() === myEmail ||
+    p.id === userDoc?.person_id
+  );
+  if (!alreadyIn) {
+    try {
+      const newData = {
+        name:               user.displayName || userDoc?.name || '',
+        role:               userDoc?.role || '',
+        phone:              userDoc?.phone || '',
+        contact_email:      userDoc?.contact_email || user.email || '',
+        login_google_email: myEmail,
+        created_at:         serverTimestamp(),
+        updated_at:         serverTimestamp(),
+      };
+      const newRef = await addDoc(collection(db, 'brands', brandId, 'persons'), newData);
+      persons.unshift({ id: newRef.id, ...newData });
+    } catch (_) { /* 추가 실패 시 목록만 표시 */ }
+  }
+
   container.innerHTML = `
     <div style="max-width:720px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
