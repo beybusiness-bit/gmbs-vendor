@@ -105,17 +105,17 @@ async function markBadgeRead(page) {
     // 현재 시각을 마지막 방문 타임스탬프로 저장
     _saveReadTs('notices', Date.now());
 
-  } else if (page === 'pending') {
+  } else if (page === 'brand-list') {
     const [appsSnap, joinSnap] = await Promise.all([
       getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
       getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
     ]);
-    const seen = _getReadIds('pending');
+    const seen = _getReadIds('brand-list');
     [...appsSnap.docs, ...joinSnap.docs].forEach(d => {
       const s = d.data().status;
       if (s === STATUS.APPROVED || s === STATUS.REJECTED) seen.add(d.id);
     });
-    _saveReadIds('pending', seen);
+    _saveReadIds('brand-list', seen);
 
   } else if (page === 'inquiries' && brandId) {
     const snap = await getDocs(query(collection(db, 'inquiries'), where('brand_id', '==', brandId)));
@@ -176,13 +176,13 @@ async function computeBadges() {
       }).length;
 
     } else if (!isBrand) {
-      // 신청현황: 거절 결과 중 아직 안 본 것 (승인은 브랜드 삭제 케이스이므로 배지 제외)
-      const seenApps = _getReadIds('pending');
+      // 담당 브랜드 목록: 거절 결과 중 아직 안 본 것
+      const seenApps = _getReadIds('brand-list');
       const [appsSnap, joinSnap] = await Promise.all([
         getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
         getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
       ]);
-      badges.pending = [...appsSnap.docs, ...joinSnap.docs].filter(d => {
+      badges['brand-list'] = [...appsSnap.docs, ...joinSnap.docs].filter(d => {
         const s = d.data().status;
         return s === STATUS.REJECTED && !seenApps.has(d.id);
       }).length;
@@ -644,7 +644,6 @@ const PAGE_TITLES = {
   'branch-select':     '새 브랜드 담당 합류/등록',
   'member-onboarding': '새 브랜드 담당 합류/등록',
   'brand-list':        '담당 브랜드 목록',
-  pending:             '신청 현황',
   welcome:             '환영합니다',
   'brand-info':        '브랜드 정보',
   persons:             '담당자 관리',
@@ -684,7 +683,7 @@ async function renderPage(page) {
     case 'member-onboarding': await renderMemberOnboardingPage(container); break;
     case 'brand-list':        await renderBrandListPage(container); break;
     case 'faq-page':          await renderFaqPage(container); break;
-    case 'pending':       await renderPendingFull(container); break;
+    case 'pending':       await renderBrandListPage(container); break;
     case 'welcome':       container.innerHTML = renderWelcome(); break;
     case 'brand-info':    await renderBrandInfo(ctx()); break;
     case 'persons':       await renderPersons(ctx()); break;
@@ -946,7 +945,7 @@ async function openJoinModal() {
     });
 
     closeModal();
-    renderPage('pending');
+    renderPage('brand-list');
   });
 }
 
@@ -1821,6 +1820,83 @@ async function renderBrandListPage(container) {
         });
       }
       bindRows();
+
+      // 신청 중인 브랜드 (미승인) 목록도 하단에 표시
+      try {
+        const [pendingAppsSnap, pendingJoinSnap] = await Promise.all([
+          getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
+          getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
+        ]);
+        const pendingApps  = pendingAppsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }));
+        const pendingJoins = pendingJoinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
+        const pendingAll = [...pendingApps, ...pendingJoins]
+          .filter(i => i.status !== STATUS.APPROVED)
+          .sort((a, b) => (b.submitted_at?.toMillis?.() || 0) - (a.submitted_at?.toMillis?.() || 0));
+
+        if (pendingAll.length > 0) {
+          const fmtPTs = ts => {
+            if (!ts) return '-';
+            const d = ts.toDate ? ts.toDate() : new Date(ts);
+            return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+          };
+          const pendingStatusBadge = s => {
+            const map = { '제출됨': ['badge-yellow','심사중'], '거절': ['badge-red','거절'] };
+            const [cls, label] = map[s] || ['badge-gray', s || '-'];
+            return `<span class="badge ${cls}">${label}</span>`;
+          };
+
+          const pendingSection = document.createElement('div');
+          pendingSection.style.marginTop = '28px';
+          pendingSection.innerHTML = `
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:12px">신청 중인 브랜드</h3>
+            <div id="pending-apps-list"></div>`;
+          container.querySelector('div[style*="max-width"]').appendChild(pendingSection);
+
+          const pendingList = document.getElementById('pending-apps-list');
+          pendingAll.forEach((item, i) => {
+            const card = document.createElement('div');
+            card.className = 'card app-detail-card';
+            card.style.cssText = 'margin-bottom:10px;cursor:pointer';
+            card.dataset.idx = i;
+            const canCancel = item.status === STATUS.SUBMITTED;
+            card.innerHTML = `
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+                    <span style="font-size:12px;padding:2px 8px;border-radius:20px;background:var(--gray-100);color:var(--gray-600);font-weight:600">
+                      ${item.type === 'new' ? '새 브랜드 등록' : '기존 브랜드 합류'}
+                    </span>
+                    ${pendingStatusBadge(item.status)}
+                  </div>
+                  <div style="font-size:15px;font-weight:700;margin-bottom:4px">
+                    ${esc(item.brand_name || item.target_brand_name || item.target_brand_id || '(브랜드명 없음)')}
+                  </div>
+                  <div style="font-size:12px;color:var(--gray-400)">신청일: ${fmtPTs(item.submitted_at)}</div>
+                  ${item.status === '거절' && item.reject_reason
+                    ? `<div style="margin-top:8px;padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#b91c1c">거절 사유: ${esc(item.reject_reason)}</div>` : ''}
+                </div>
+                ${canCancel ? `<button class="btn-cancel-pending" data-id="${item.id}" data-type="${item.type}"
+                  style="flex-shrink:0;padding:6px 14px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+                  신청 취소
+                </button>` : ''}
+              </div>`;
+            card.addEventListener('click', () => showApplicationDetail(item));
+            if (canCancel) {
+              card.querySelector('.btn-cancel-pending').addEventListener('click', async e => {
+                e.stopPropagation();
+                if (!confirm('신청을 취소하시겠습니까?')) return;
+                const colName = item.type === 'new' ? 'brand_applications' : 'brand_join_requests';
+                try {
+                  await deleteDoc(doc(db, colName, item.id));
+                  card.remove();
+                  if (pendingList.children.length === 0) pendingSection.remove();
+                } catch (_) { alert('취소 중 오류가 발생했습니다.'); }
+              });
+            }
+            pendingList.appendChild(card);
+          });
+        }
+      } catch (_) { /* 신청 목록 로드 실패는 무시 */ }
 
     } catch (e) {
       container.innerHTML = '<div class="card" style="color:var(--danger);padding:24px">데이터를 불러오지 못했습니다.</div>';
