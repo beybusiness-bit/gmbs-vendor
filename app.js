@@ -63,9 +63,10 @@ let activeBrandId  = null; // 현재 활성 브랜드 (다중 브랜드 지원)
 // 사용자 문서에서 소속 브랜드 ID 목록 반환 (brand_ids 배열 우선, brand_id 단일값 폴백)
 function getUserBrandIds(userDoc) {
   if (!userDoc) return [];
-  if (Array.isArray(userDoc.brand_ids) && userDoc.brand_ids.length) return userDoc.brand_ids;
-  if (userDoc.brand_id) return [userDoc.brand_id];
-  return [];
+  const fromArray = Array.isArray(userDoc.brand_ids) ? userDoc.brand_ids : [];
+  const fromSingle = userDoc.brand_id ? [userDoc.brand_id] : [];
+  const merged = [...new Set([...fromArray, ...fromSingle].filter(Boolean))];
+  return merged;
 }
 
 function setActiveBrand(brandId) {
