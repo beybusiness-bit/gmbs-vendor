@@ -459,7 +459,7 @@ async function getBrandData(brandId) {
     const d = snap.data() || {};
     const data = {
       name:            d.brand_name || brandId,
-      photoUrl:        d.brand_photo_url || null,
+      photoUrl:        d.logo_url || d.brand_photo_url || null,
       onboardingStatus: d.onboarding_status || d.brand_status || d.status || null,
       deleted:         false,
     };

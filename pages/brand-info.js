@@ -135,8 +135,8 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       <div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;gap:16px">
           <div style="display:flex;align-items:center;gap:16px">
-            ${b.brand_photo_url
-              ? `<img src="${esc(b.brand_photo_url)}" alt="${esc(b.brand_name || '')}"
+            ${(b.logo_url || b.brand_photo_url)
+              ? `<img src="${esc(b.logo_url || b.brand_photo_url)}" alt="${esc(b.brand_name || '')}"
                    style="width:72px;height:72px;border-radius:12px;object-fit:cover;border:1px solid var(--gray-200);flex-shrink:0">`
               : `<div style="width:72px;height:72px;border-radius:12px;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;flex-shrink:0">
                    ${(b.brand_name || '?')[0].toUpperCase()}
@@ -234,8 +234,8 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     <div class="form-group">
       <label class="form-label">브랜드 대표 이미지 <span style="color:var(--gray-400);font-weight:400">(정사각형 500×500px 권장, JPG/PNG)</span></label>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-        ${b.brand_photo_url
-          ? `<img id="edit-photo-preview-img" src="${esc(b.brand_photo_url)}" style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)">`
+        ${(b.logo_url || b.brand_photo_url)
+          ? `<img id="edit-photo-preview-img" src="${esc(b.logo_url || b.brand_photo_url)}" style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)">`
           : `<div id="edit-photo-preview-img" style="width:64px;height:64px;border-radius:8px;background:var(--gray-100);display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:22px">🖼️</div>`}
         <div style="flex:1">
           <input id="edit-brand-photo" type="file" accept="image/jpeg,image/png"
@@ -331,7 +331,7 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
         .map(el => el.value.trim()).filter(Boolean);
 
       // 사진 업로드 (선택 시에만)
-      let photoUrl = b.brand_photo_url || '';
+      let photoUrl = b.logo_url || b.brand_photo_url || '';
       const photoFile = document.getElementById('edit-brand-photo').files[0];
       if (photoFile) {
         try {
@@ -346,7 +346,7 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
         website_urls: websiteUrls,
         updated_at:   serverTimestamp(),
       };
-      if (photoUrl) updates.brand_photo_url = photoUrl;
+      if (photoUrl) updates.logo_url = photoUrl;
 
       await updateDoc(doc(db, 'brands', brandId), updates);
       closeModal();

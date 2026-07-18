@@ -89,7 +89,7 @@ service cloud.firestore {
       allow update: if request.auth != null
         && isBrandMember(brandId)
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['brand_desc', 'website_urls', 'settlement_info', 'brand_photo_url', 'updated_at'])
+             .hasOnly(['brand_desc', 'website_urls', 'settlement_info', 'logo_url', 'brand_photo_url', 'updated_at'])
         && (
           !('settlement_info' in request.resource.data) ||
           !request.resource.data.settlement_info.keys()
