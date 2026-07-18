@@ -798,11 +798,11 @@ function renderBranchSelect(container) {
   $('bc-new').addEventListener('click',  openApplyModal);
 }
 
-// ── 역할/직책 선택지 ──
-const ROLE_OPTIONS = ['대표', '운영 담당자', 'MD', '마케팅 담당자', '영업 담당자', '기타'];
+// ── 역할 선택지 ──
+const ROLE_OPTIONS = ['주관리자', '부관리자'];
 function roleSelectHTML(id, selected = '') {
   return `<select id="${id}" class="form-input form-select">
-    <option value="">선택하세요</option>
+    <option value="">역할 선택</option>
     ${ROLE_OPTIONS.map(r => `<option value="${r}"${selected === r ? ' selected' : ''}>${r}</option>`).join('')}
   </select>`;
 }
@@ -833,8 +833,9 @@ async function openJoinModal() {
       <input id="join-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">역할/직책 <span style="color:var(--danger)">*</span></label>
+      <label class="form-label">역할 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('join-role')}
+      <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
     <div id="join-error" class="form-error"></div>
     <button class="btn btn-primary" id="btn-join-submit" style="margin-top:8px">신청하기</button>
@@ -917,7 +918,7 @@ async function openJoinModal() {
     if (!selectedBrandId)  { errEl.textContent = '브랜드를 검색해서 선택해 주세요.'; return; }
     if (!phone)            { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail)     { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
-    if (!role)             { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
+    if (!role)             { errEl.textContent = '역할을 선택해 주세요.'; return; }
 
     $('btn-join-submit').disabled = true;
     $('btn-join-submit').textContent = '신청 중...';
@@ -991,8 +992,9 @@ async function openApplyModal() {
       <input id="app-contact-email" class="form-input" type="email" placeholder="업무용 이메일" value="${ud.contact_email || ''}">
     </div>
     <div class="form-group">
-      <label class="form-label">역할/직책 <span style="color:var(--danger)">*</span></label>
+      <label class="form-label">역할 <span style="color:var(--danger)">*</span></label>
       ${roleSelectHTML('app-role')}
+      <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
 
     <div id="app-error" class="form-error"></div>
@@ -1044,7 +1046,7 @@ async function openApplyModal() {
     if (!brandName)    { errEl.textContent = '브랜드명을 입력해 주세요.'; return; }
     if (!phone)        { errEl.textContent = '연락처를 입력해 주세요.'; return; }
     if (!contactEmail) { errEl.textContent = '연락용 이메일을 입력해 주세요.'; return; }
-    if (!role)         { errEl.textContent = '역할/직책을 선택해 주세요.'; return; }
+    if (!role)         { errEl.textContent = '역할을 선택해 주세요.'; return; }
 
     $('btn-app-submit').disabled = true;
     $('btn-app-submit').textContent = '신청 중...';
@@ -1133,7 +1135,7 @@ function showApplicationDetail(item) {
     ${isNew && urlsHtml ? row('관련 사이트', urlsHtml) : ''}
     ${row('신청일', fmt(item.submitted_at))}
     ${sectionHead('담당자 정보')}
-    ${row('역할/직책', esc(item.applicant_role || ''))}
+    ${row('역할', esc(item.applicant_role || ''))}
     ${row('연락처', esc(item.applicant_phone || ''))}
     ${row('이메일', esc(item.applicant_contact_email || ''))}
     ${rejReason ? `<div style="margin-top:12px;padding:10px 12px;background:#fee2e2;border-radius:8px;font-size:13px;color:#b91c1c"><strong>거절 사유:</strong> ${esc(rejReason)}</div>` : ''}
