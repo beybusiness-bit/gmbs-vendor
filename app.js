@@ -1718,18 +1718,12 @@ async function renderBrandListPage(container) {
       getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
       getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
     ]);
-    const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }));
-    const joinsRaw = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
-
-    // 승인된 합류 신청 중 브랜드가 실제로 삭제된 것은 목록에서 제외
-    const joinsChecked = await Promise.all(joinsRaw.map(async item => {
-      if (item.status === STATUS.APPROVED && item.target_brand_id) {
-        const bd = await getBrandData(item.target_brand_id);
-        if (bd.deleted) return null; // 브랜드 없음 → 제외
-      }
-      return item;
-    }));
-    const joins = joinsChecked.filter(Boolean);
+    // 승인된 신청은 GENERAL 뷰에서 제외
+    // (승인됐다면 브랜드 담당자가 되어야 하는데 여전히 GENERAL이면 브랜드가 삭제된 것)
+    const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }))
+                             .filter(item => item.status !== STATUS.APPROVED);
+    const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }))
+                             .filter(item => item.status !== STATUS.APPROVED);
 
     const all   = [...apps, ...joins].sort((a, b) => {
       const ta = a.submitted_at?.toMillis?.() || 0;
