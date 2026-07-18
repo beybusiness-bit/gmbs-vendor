@@ -176,7 +176,7 @@ async function computeBadges() {
       }).length;
 
     } else if (!isBrand) {
-      // 신청현황: 승인/거절 결과 중 아직 안 본 것
+      // 신청현황: 거절 결과 중 아직 안 본 것 (승인은 브랜드 삭제 케이스이므로 배지 제외)
       const seenApps = _getReadIds('pending');
       const [appsSnap, joinSnap] = await Promise.all([
         getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
@@ -184,7 +184,7 @@ async function computeBadges() {
       ]);
       badges.pending = [...appsSnap.docs, ...joinSnap.docs].filter(d => {
         const s = d.data().status;
-        return (s === STATUS.APPROVED || s === STATUS.REJECTED) && !seenApps.has(d.id);
+        return s === STATUS.REJECTED && !seenApps.has(d.id);
       }).length;
     }
   } catch (_) { /* 배지 계산 실패는 조용히 무시 */ }
@@ -1288,6 +1288,23 @@ async function openApplyModal() {
   });
 }
 
+// ── 신청 목록 공통 필터 ──
+// 승인됐는데 GENERAL인 경우 = 브랜드가 삭제된 것. 목록에서 제외.
+// brand_join_requests: target_brand_id로 브랜드 존재 확인
+// brand_applications:  brand_id 정보 없으므로 승인 건 전체 제외
+async function filterDeletedBrandApps(apps, joins) {
+  const joinsFiltered = await Promise.all(joins.map(async item => {
+    if (item.status !== STATUS.APPROVED) return item;
+    if (item.target_brand_id) {
+      const bd = await getBrandData(item.target_brand_id);
+      if (bd.deleted) return null;
+    }
+    return item;
+  }));
+  const appsFiltered = apps.filter(item => item.status !== STATUS.APPROVED);
+  return [...appsFiltered, ...joinsFiltered.filter(Boolean)];
+}
+
 // ── 심사중 화면 (내 신청 현황 표시) ──
 async function renderPendingFull(container) {
   const uid = currentUser.uid;
@@ -1299,7 +1316,8 @@ async function renderPendingFull(container) {
 
   const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'apply', ...d.data() }));
   const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join',  ...d.data() }));
-  const all   = [...apps, ...joins].sort((a, b) => {
+  const filtered = await filterDeletedBrandApps(apps, joins);
+  const all   = filtered.sort((a, b) => {
     const ta = a.submitted_at?.toMillis?.() || 0;
     const tb = b.submitted_at?.toMillis?.() || 0;
     return tb - ta;
@@ -1758,12 +1776,11 @@ async function renderBrandListPage(container) {
       getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid))),
       getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid))),
     ]);
-    // 승인된 신청은 GENERAL 뷰에서 제외
-    // (승인됐다면 브랜드 담당자가 되어야 하는데 여전히 GENERAL이면 브랜드가 삭제된 것)
-    const apps  = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }))
-                             .filter(item => item.status !== STATUS.APPROVED);
-    const joins = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }))
-                             .filter(item => item.status !== STATUS.APPROVED);
+    const appsRaw = appsSnap.docs.map(d => ({ id: d.id, type: 'new',  ...d.data() }));
+    const joinsRaw = joinSnap.docs.map(d => ({ id: d.id, type: 'join', ...d.data() }));
+    const filteredAll = await filterDeletedBrandApps(appsRaw, joinsRaw);
+    const apps  = filteredAll.filter(i => i.type === 'new');
+    const joins = filteredAll.filter(i => i.type === 'join');
 
     const all   = [...apps, ...joins].sort((a, b) => {
       const ta = a.submitted_at?.toMillis?.() || 0;
