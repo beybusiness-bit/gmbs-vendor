@@ -489,6 +489,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--gray-50); }
+.app-detail-card:hover { background: var(--gray-50); border-color: var(--gray-300); }
 
 /* ── 사이드바 브랜드 헤더 (클릭 → 스위처 팝업) ── */
 .sidebar-brand-header {
