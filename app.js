@@ -1,7 +1,7 @@
 import {
   auth, db, storage, googleProvider,
   signInWithPopup, signOut, onAuthStateChanged,
-  doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
+  doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
   ref, uploadBytes, getDownloadURL,
 } from './firebase-init.js';
 import { encryptValue } from './utils/encryption.js';
@@ -332,15 +332,13 @@ onAuthStateChanged(auth, async (user) => {
         }
       } catch (_) { /* 초대 확인 실패는 무시 */ }
 
-      // 브랜드 담당자인데 brand_id가 null인 경우 안내 화면 표시
-      // (브랜드 문서 존재 여부는 각 페이지에서 처리 — 로그인 지연 방지)
-      if (currentUserDoc.member_status === STATUS.BRAND && !currentUserDoc.brand_id) {
-        showNoBrandState();
-        return;
-      }
+      // 브랜드 담당자인데 유효한 브랜드가 없으면 일반회원으로 처리
+      const effectiveStatus = (currentUserDoc.member_status === STATUS.BRAND && getUserBrandIds(currentUserDoc).length === 0)
+        ? STATUS.GENERAL
+        : (currentUserDoc.member_status || STATUS.GENERAL);
 
       syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
-      renderApp(currentUserDoc.member_status || STATUS.GENERAL);
+      renderApp(effectiveStatus);
     }
   } catch (e) {
     // 예외 발생 시 로딩 화면이 고정되지 않도록 보장
@@ -1594,9 +1592,21 @@ async function renderBrandListPage(container) {
         if (deletedIds.includes(currentUserDoc.brand_id)) {
           updates.brand_id = remainingIds[0] || null;
         }
+        // 담당 브랜드가 모두 삭제됐으면 계정 상태를 일반회원으로 되돌림
+        if (remainingIds.length === 0) {
+          updates.member_status = STATUS.GENERAL;
+          updates.brand_id = null;
+        }
         await updateDoc(doc(db, 'users', currentUser.uid), updates).catch(() => {});
         currentUserDoc = { ...currentUserDoc, ...updates };
         if (updates.brand_id !== undefined) setActiveBrand(updates.brand_id);
+
+        // 모든 브랜드가 삭제된 경우: 사이드바를 일반회원 메뉴로 전환하고 일반회원 뷰로 재렌더링
+        if (remainingIds.length === 0) {
+          await updateSidebarUser(STATUS.GENERAL);
+          await renderBrandListPage(container);
+          return;
+        }
       }
 
       // 삭제된 브랜드 제외 + 이름을 알 수 없는 브랜드는 '알 수 없는 브랜드'로 표시
