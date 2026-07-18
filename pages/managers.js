@@ -36,6 +36,10 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
     } catch (_) { /* 추가 실패 시 목록만 표시 */ }
   }
 
+  // 내 역할 파악
+  const myRecord = managers.find(m => (m.login_google_email || '').toLowerCase() === myEmail);
+  const isMain = myRecord?.role === '주관리자';
+
   container.innerHTML = `
     <div style="max-width:720px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -45,20 +49,22 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
             브랜드 담당자를 관리합니다.
           </p>
         </div>
-        <button class="btn btn-primary" id="btn-add-manager" style="width:auto;padding:10px 18px">
-          + 담당자 추가
-        </button>
+        ${isMain ? `<button class="btn btn-primary" id="btn-add-manager" style="width:auto;padding:10px 18px">+ 담당자 추가</button>` : ''}
       </div>
+      ${!isMain ? `
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1d4ed8">
+          부관리자는 자신의 정보만 수정할 수 있습니다.
+        </div>` : ''}
       ${managers.length === 0
         ? `<div class="card" style="text-align:center;padding:40px;color:var(--gray-400)">
              담당자가 없습니다. 추가 버튼을 눌러 등록하세요.
            </div>`
-        : managers.map(m => managerCard(m, myEmail)).join('')
+        : managers.map(m => managerCard(m, myEmail, isMain)).join('')
       }
     </div>
   `;
 
-  document.getElementById('btn-add-manager').addEventListener('click', () => {
+  document.getElementById('btn-add-manager')?.addEventListener('click', () => {
     openManagerModal({ brandId, manager: null, showModal, closeModal, container, userDoc, user });
   });
 
@@ -66,7 +72,7 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
     const id = btn.dataset.id;
     const manager = managers.find(m => m.id === id);
     btn.addEventListener('click', () => {
-      openManagerModal({ brandId, manager, showModal, closeModal, container, userDoc, user });
+      openManagerModal({ brandId, manager, showModal, closeModal, container, userDoc, user, selfOnly: !isMain });
     });
   });
 
@@ -79,8 +85,12 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
   });
 }
 
-function managerCard(m, myEmail) {
+function managerCard(m, myEmail, isMain) {
   const isMe = (m.login_google_email || '').toLowerCase() === myEmail;
+  // 수정: 주관리자는 모두 수정 가능, 부관리자는 자신만 수정 가능
+  const canEdit = isMain || isMe;
+  // 삭제: 주관리자만 가능, 본인은 삭제 불가
+  const canDelete = isMain && !isMe;
   return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -101,9 +111,9 @@ function managerCard(m, myEmail) {
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn btn-outline btn-edit-manager" data-id="${m.id}"
-            style="width:auto;padding:6px 12px;font-size:13px">수정</button>
-          ${!isMe ? `<button class="btn btn-delete-manager" data-id="${m.id}"
+          ${canEdit ? `<button class="btn btn-outline btn-edit-manager" data-id="${m.id}"
+            style="width:auto;padding:6px 12px;font-size:13px">수정</button>` : ''}
+          ${canDelete ? `<button class="btn btn-delete-manager" data-id="${m.id}"
             style="width:auto;padding:6px 12px;font-size:13px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;cursor:pointer">삭제</button>` : ''}
         </div>
       </div>
@@ -171,7 +181,7 @@ function openDeleteConfirm({ brandId, manager, showModal, closeModal, container,
   });
 }
 
-async function openManagerModal({ brandId, manager, showModal, closeModal, container, userDoc, user }) {
+async function openManagerModal({ brandId, manager, showModal, closeModal, container, userDoc, user, selfOnly = false }) {
   const isEdit = !!manager;
   showModal(`
     <div class="modal-title">${isEdit ? '담당자 정보 수정' : '담당자 추가'}</div>
@@ -181,13 +191,17 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
     </div>
     <div class="form-group">
       <label class="form-label">역할 <span style="color:var(--danger)">*</span></label>
-      <select id="m-role" class="form-input form-select">
-        <option value="">역할 선택</option>
-        ${['주관리자', '부관리자'].map(r =>
-          `<option value="${r}"${(isEdit ? manager.role : '') === r ? ' selected' : ''}>${r}</option>`
-        ).join('')}
-      </select>
-      <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
+      ${selfOnly
+        ? `<input class="form-input" type="text" value="${manager?.role || ''}" disabled style="background:var(--gray-50);color:var(--gray-500)">
+           <div class="form-hint">부관리자는 역할을 변경할 수 없습니다.</div>`
+        : `<select id="m-role" class="form-input form-select">
+             <option value="">역할 선택</option>
+             ${['주관리자', '부관리자'].map(r =>
+               `<option value="${r}"${(isEdit ? manager.role : '') === r ? ' selected' : ''}>${r}</option>`
+             ).join('')}
+           </select>
+           <div class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>`
+      }
     </div>
     <div class="form-group">
       <label class="form-label">연락처</label>
@@ -225,23 +239,28 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
 
     if (!name) { errEl.textContent = '이름을 입력해 주세요.'; return; }
 
-    const role = document.getElementById('m-role').value;
-    if (!role) { errEl.textContent = '역할을 선택해 주세요.'; return; }
+    let role;
+    if (selfOnly) {
+      role = manager?.role || '';
+    } else {
+      role = document.getElementById('m-role').value;
+      if (!role) { errEl.textContent = '역할을 선택해 주세요.'; return; }
 
-    if (role === '주관리자') {
-      try {
-        const mainSnap = await getDocs(query(
-          collection(db, 'brands', brandId, 'managers'),
-          where('role', '==', '주관리자'),
-        ));
-        const others = mainSnap.docs.filter(d => d.data().active !== false && (!isEdit || d.id !== manager.id));
-        if (others.length > 0) {
-          errEl.textContent = '이미 주관리자가 있습니다. 기존 주관리자를 부관리자로 변경한 후 다시 시도하세요.';
+      if (role === '주관리자') {
+        try {
+          const mainSnap = await getDocs(query(
+            collection(db, 'brands', brandId, 'managers'),
+            where('role', '==', '주관리자'),
+          ));
+          const others = mainSnap.docs.filter(d => d.data().active !== false && (!isEdit || d.id !== manager.id));
+          if (others.length > 0) {
+            errEl.textContent = '이미 주관리자가 있습니다. 기존 주관리자를 부관리자로 변경한 후 다시 시도하세요.';
+            return;
+          }
+        } catch (e) {
+          errEl.textContent = '역할 확인 중 오류가 발생했습니다.';
           return;
         }
-      } catch (e) {
-        errEl.textContent = '역할 확인 중 오류가 발생했습니다.';
-        return;
       }
     }
 

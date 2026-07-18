@@ -524,18 +524,18 @@ async function renderSidebar(memberStatus) {
       </div>
 
       <div class="nav-item" data-page="dashboard"><span class="icon">🏠</span><span class="nav-label">대시보드</span></div>
-      <div class="nav-section-label">브랜드</div>
-      <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span><span class="nav-label">브랜드 정보</span></div>
-      <div class="nav-item" data-page="persons"><span class="icon">👥</span><span class="nav-label">담당자 관리</span></div>
-      <div class="nav-item" data-page="contracts"><span class="icon">📄</span><span class="nav-label">입점 계약 관리</span></div>
-      <div class="nav-item" data-page="brand-list"><span class="icon">📋</span><span class="nav-label">담당 브랜드 목록</span></div>
-      <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span><span class="nav-label">새 브랜드 담당 추가</span></div>
       <div class="nav-section-label">상품·정산</div>
       <div class="nav-item" data-page="products"><span class="icon">📦</span><span class="nav-label">상품 관리</span></div>
       <div class="nav-item" data-page="inventory"><span class="icon">📊</span><span class="nav-label">재고·판매 조회</span></div>
       <div class="nav-item" data-page="settlements"><span class="icon">💰</span><span class="nav-label">정산 조회</span></div>
       <div class="nav-section-label">고객 지원</div>
       <div class="nav-item" data-page="customer-inquiries"><span class="icon">🎯</span><span class="nav-label">고객 문의</span></div>
+      <div class="nav-section-label">브랜드</div>
+      <div class="nav-item" data-page="brand-info"><span class="icon">🏷️</span><span class="nav-label">브랜드 정보</span></div>
+      <div class="nav-item" data-page="persons"><span class="icon">👥</span><span class="nav-label">담당자 관리</span></div>
+      <div class="nav-item" data-page="contracts"><span class="icon">📄</span><span class="nav-label">입점 계약 관리</span></div>
+      <div class="nav-item" data-page="brand-list"><span class="icon">📋</span><span class="nav-label">담당 브랜드 목록</span></div>
+      <div class="nav-item" data-page="member-onboarding"><span class="icon">➕</span><span class="nav-label">새 브랜드 담당 추가</span></div>
       <div class="nav-section-label">안내</div>
       <div class="nav-item" data-page="notices"><span class="icon">📢</span><span class="nav-label">공지사항</span></div>
       <div class="nav-item" data-page="faq-page"><span class="icon">❓</span><span class="nav-label">자주하는 질문</span></div>
