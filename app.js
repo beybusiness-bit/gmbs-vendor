@@ -1513,6 +1513,9 @@ async function renderBrandListPage(container) {
   // 브랜드 담당자: 실제 담당 브랜드 목록 표시
   if (isBrandMember) {
     try {
+      // 최신 userDoc 로드 (외부에서 브랜드가 추가된 경우 반영)
+      const freshSnap = await getDoc(doc(db, 'users', uid));
+      if (freshSnap.exists()) currentUserDoc = freshSnap.data();
       const brandIds = getUserBrandIds(currentUserDoc);
       const allBrands = await Promise.all(brandIds.map(id => getBrandData(id).then(d => ({ id, ...d }))));
 
@@ -1591,7 +1594,7 @@ async function renderBrandListPage(container) {
                 <th style="width:48px"></th>
                 <th>브랜드명</th>
                 <th style="width:120px;text-align:center">입점 상태</th>
-                <th style="color:var(--gray-500)">설명</th>
+                <th style="color:var(--gray-500);text-align:center">설명</th>
               </tr>
             </thead>
             <tbody>
