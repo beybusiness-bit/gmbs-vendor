@@ -398,7 +398,7 @@ async function syncPersonDoc(user, userData) {
 }
 
 // ── 앱 렌더링 ──
-function renderApp(memberStatus, isNewLink = false) {
+async function renderApp(memberStatus, isNewLink = false) {
   // brand_ids(또는 brand_id)가 실제로 비어있으면 GENERAL로 강제 조정
   if (memberStatus === STATUS.BRAND) {
     const ids = getUserBrandIds(currentUserDoc);
@@ -426,7 +426,13 @@ function renderApp(memberStatus, isNewLink = false) {
   } else if (memberStatus === STATUS.BRAND) {
     renderPage('dashboard');
   } else {
-    renderPage('member-onboarding');
+    // GENERAL: 신청 내역 있으면 담당 브랜드 목록, 없으면 새 브랜드 담당 등록 페이지
+    const uid = currentUser.uid;
+    const [appsSnap, joinSnap] = await Promise.all([
+      getDocs(query(collection(db, 'brand_applications'),  where('applicant_uid', '==', uid), limit(1))),
+      getDocs(query(collection(db, 'brand_join_requests'), where('applicant_uid', '==', uid), limit(1))),
+    ]).catch(() => [{ empty: true }, { empty: true }]);
+    renderPage((!appsSnap.empty || !joinSnap.empty) ? 'brand-list' : 'member-onboarding');
   }
   showApp();
   // 앱 진입 시 초기 배지 계산 (백그라운드)
