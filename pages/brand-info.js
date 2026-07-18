@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, serverTimestamp } from '../firebase-init.js';
+import { db, doc, getDoc, updateDoc, serverTimestamp, storage, ref, uploadBytes, getDownloadURL } from '../firebase-init.js';
 import { encryptValue, decryptValue, isEncrypted } from '../utils/encryption.js';
 import {
   validateBizRegNumber, formatBizRegNumber,
@@ -128,12 +128,20 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
     <div style="max-width:720px">
       ${contractCompleteNotice}
       <div class="card" style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-          <div>
-            <h2 style="font-size:22px;font-weight:800">${esc(b.brand_name) || '-'}</h2>
-            <div style="margin-top:6px">${statusBadge(onboardingStatus)}</div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;gap:16px">
+          <div style="display:flex;align-items:center;gap:16px">
+            ${b.brand_photo_url
+              ? `<img src="${esc(b.brand_photo_url)}" alt="${esc(b.brand_name || '')}"
+                   style="width:72px;height:72px;border-radius:12px;object-fit:cover;border:1px solid var(--gray-200);flex-shrink:0">`
+              : `<div style="width:72px;height:72px;border-radius:12px;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;flex-shrink:0">
+                   ${(b.brand_name || '?')[0].toUpperCase()}
+                 </div>`}
+            <div>
+              <h2 style="font-size:22px;font-weight:800">${esc(b.brand_name) || '-'}</h2>
+              <div style="margin-top:6px">${statusBadge(onboardingStatus)}</div>
+            </div>
           </div>
-          <button class="btn btn-outline" id="btn-edit-brand" style="width:auto;padding:10px 20px">
+          <button class="btn btn-outline" id="btn-edit-brand" style="width:auto;padding:10px 20px;flex-shrink:0">
             ✏️ 정보 수정
           </button>
         </div>
@@ -216,6 +224,19 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     </p>
 
     <div class="form-group">
+      <label class="form-label">브랜드 대표 이미지 <span style="color:var(--gray-400);font-weight:400">(정사각형 500×500px 권장, JPG/PNG)</span></label>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        ${b.brand_photo_url
+          ? `<img id="edit-photo-preview-img" src="${esc(b.brand_photo_url)}" style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)">`
+          : `<div id="edit-photo-preview-img" style="width:64px;height:64px;border-radius:8px;background:var(--gray-100);display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:22px">🖼️</div>`}
+        <div style="flex:1">
+          <input id="edit-brand-photo" type="file" accept="image/jpeg,image/png"
+            style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">브랜드 간단 소개</label>
       <textarea id="edit-desc" class="form-input" rows="3" style="resize:vertical">${b.brand_desc || b.description || ''}</textarea>
     </div>
@@ -241,6 +262,26 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
       <button class="btn btn-primary" id="btn-edit-save" style="flex:2">저장</button>
     </div>
   `);
+
+  // 사진 미리보기
+  document.getElementById('edit-brand-photo').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const preview = document.getElementById('edit-photo-preview-img');
+      if (preview.tagName === 'IMG') {
+        preview.src = ev.target.result;
+      } else {
+        const img = document.createElement('img');
+        img.id = 'edit-photo-preview-img';
+        img.style.cssText = 'width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--gray-200)';
+        img.src = ev.target.result;
+        preview.replaceWith(img);
+      }
+    };
+    reader.readAsDataURL(file);
+  });
 
   // URL 행 추가/삭제
   function attachRemoveListeners() {
@@ -280,11 +321,26 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     try {
       const websiteUrls = [...document.querySelectorAll('.edit-url-input')]
         .map(el => el.value.trim()).filter(Boolean);
-      await updateDoc(doc(db, 'brands', brandId), {
+
+      // 사진 업로드 (선택 시에만)
+      let photoUrl = b.brand_photo_url || '';
+      const photoFile = document.getElementById('edit-brand-photo').files[0];
+      if (photoFile) {
+        try {
+          const photoRef = ref(storage, `brands/${brandId}/photo_${Date.now()}_${photoFile.name}`);
+          await uploadBytes(photoRef, photoFile);
+          photoUrl = await getDownloadURL(photoRef);
+        } catch (_) { /* 사진 실패해도 나머지 저장 계속 */ }
+      }
+
+      const updates = {
         brand_desc:   document.getElementById('edit-desc').value.trim(),
         website_urls: websiteUrls,
         updated_at:   serverTimestamp(),
-      });
+      };
+      if (photoUrl) updates.brand_photo_url = photoUrl;
+
+      await updateDoc(doc(db, 'brands', brandId), updates);
       closeModal();
       await renderBrandInfo({ userDoc, container, showModal, closeModal });
     } catch (e) {
