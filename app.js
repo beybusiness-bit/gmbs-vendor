@@ -12,7 +12,7 @@ import {
   verifyBizNumber, validateSettlementForm,
 } from './utils/validation.js';
 import { renderBrandInfo }    from './pages/brand-info.js';
-import { renderPersons }      from './pages/persons.js';
+import { renderManagers }     from './pages/managers.js';
 import { renderContracts }    from './pages/contracts.js';
 import { renderProducts }     from './pages/products.js';
 import { renderInventory }    from './pages/inventory.js';
@@ -56,22 +56,23 @@ function showLogin()  {
 function showApp()    { loginScreen.style.display = 'none'; appScreen.style.display = 'block'; showLoading(false); }
 
 // ── 현재 사용자 상태 ──
-let currentUser    = null;
-let currentUserDoc = null;
-let activeBrandId  = null; // 현재 활성 브랜드 (다중 브랜드 지원)
+let currentUser       = null;
+let currentUserDoc    = null;
+let currentManagerDoc = null; // managers/{email} 문서 (브랜드 담당자의 소스)
+let activeBrandId     = null; // 현재 활성 브랜드
 
-// 사용자 문서에서 소속 브랜드 ID 목록 반환 (brand_ids 배열 우선, brand_id 단일값 폴백)
-function getUserBrandIds(userDoc) {
-  if (!userDoc) return [];
-  const fromArray = Array.isArray(userDoc.brand_ids) ? userDoc.brand_ids : [];
-  const fromSingle = userDoc.brand_id ? [userDoc.brand_id] : [];
-  const merged = [...new Set([...fromArray, ...fromSingle].filter(Boolean))];
-  return merged;
+// managers 문서에서 담당 브랜드 ID 목록 반환
+function getManagerBrandIds() {
+  if (!currentManagerDoc) return [];
+  return Array.isArray(currentManagerDoc.brand_ids)
+    ? currentManagerDoc.brand_ids.filter(Boolean)
+    : [];
 }
 
+// 하위 호환 — pages/* 가 userDoc.brand_id를 읽으므로 동기화 유지
 function setActiveBrand(brandId) {
   activeBrandId = brandId;
-  if (currentUserDoc) currentUserDoc.brand_id = brandId; // 기존 코드 호환
+  if (currentUserDoc) currentUserDoc.brand_id = brandId;
 }
 
 // ── 사이드바 배지 ──
@@ -259,6 +260,7 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) {
     currentUser = null;
     currentUserDoc = null;
+    currentManagerDoc = null;
     showLogin();
     return;
   }
@@ -270,75 +272,100 @@ onAuthStateChanged(auth, async (user) => {
     const email   = normalizeEmail(user.email);
     const uid     = user.uid;
     const userRef = doc(db, 'users', uid);
-    const userSnap = await getDoc(userRef);
+    const mgrRef  = doc(db, 'managers', email);
 
-    if (!userSnap.exists()) {
-      const vendorRef  = doc(db, 'vendor_accounts', email);
-      const vendorSnap = await getDoc(vendorRef);
+    // managers 문서 로드 (멀티 브랜드의 단일 소스)
+    const [userSnap, mgrSnap] = await Promise.all([getDoc(userRef), getDoc(mgrRef)]);
 
-      if (vendorSnap.exists() && vendorSnap.data().status === STATUS.INVITED) {
-        const vd = vendorSnap.data();
+    if (mgrSnap.exists()) {
+      currentManagerDoc = mgrSnap.data();
+
+      // 초대됨 → 연결됨 처리
+      if (currentManagerDoc.status === STATUS.INVITED) {
+        await updateDoc(mgrRef, {
+          uid,
+          status:     STATUS.LINKED,
+          linked_at:  serverTimestamp(),
+          updated_at: serverTimestamp(),
+        });
+        currentManagerDoc = { ...currentManagerDoc, uid, status: STATUS.LINKED };
+      }
+
+      // users 문서 생성 또는 member_status 동기화
+      if (!userSnap.exists()) {
         await setDoc(userRef, {
           email,
-          name:          user.displayName || '',
-          phone:         '',
+          name:          user.displayName || currentManagerDoc.name || '',
+          phone:         currentManagerDoc.phone || '',
           member_status: STATUS.BRAND,
-          brand_id:      vd.brand_id  || null,
-          person_id:     vd.person_id || null,
           created_at:    serverTimestamp(),
           updated_at:    serverTimestamp(),
         });
-        await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
-        currentUserDoc = (await getDoc(userRef)).data();
-        syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
-        renderApp(STATUS.BRAND, true);
+      } else if (userSnap.data().member_status !== STATUS.BRAND) {
+        await updateDoc(userRef, { member_status: STATUS.BRAND, updated_at: serverTimestamp() });
+      }
+      currentUserDoc = (await getDoc(userRef)).data();
+
+      syncManagerDoc(user); // 비동기, 완료 대기 안 함
+
+      const brandIds = getManagerBrandIds();
+      if (brandIds.length > 0) {
+        setActiveBrand(brandIds[0]);
+        renderApp(STATUS.BRAND, currentManagerDoc.status === STATUS.LINKED && !mgrSnap.data().linked_at);
       } else {
-        await setDoc(userRef, {
-          email,
-          name:          user.displayName || '',
-          phone:         '',
-          member_status: STATUS.GENERAL,
-          brand_id:      null,
-          person_id:     null,
-          created_at:    serverTimestamp(),
-          updated_at:    serverTimestamp(),
-        });
-        currentUserDoc = (await getDoc(userRef)).data();
-        syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
         renderApp(STATUS.GENERAL);
       }
     } else {
-      currentUserDoc = userSnap.data();
+      // managers 문서 없음 — 일반회원 또는 구버전 vendor_accounts 마이그레이션 시도
+      currentManagerDoc = null;
 
-      // 기존 사용자도 새 초대(vendor_accounts)가 있으면 브랜드 추가 처리
+      // 구버전 vendor_accounts 폴백 (마이그레이션 기간 한시 지원)
+      let migratedFromLegacy = false;
       try {
-        const vendorRef  = doc(db, 'vendor_accounts', email);
-        const vendorSnap = await getDoc(vendorRef);
-        if (vendorSnap.exists() && vendorSnap.data().status === STATUS.INVITED) {
-          const vd = vendorSnap.data();
-          const newBrandId = vd.brand_id;
-          if (newBrandId) {
-            const existingIds = getUserBrandIds(currentUserDoc);
-            if (!existingIds.includes(newBrandId)) {
-              const updatedIds = existingIds.length ? [...existingIds, newBrandId] : [newBrandId];
-              await setDoc(userRef, {
-                member_status: STATUS.BRAND,
-                brand_id:  newBrandId,
-                brand_ids: updatedIds,
-                updated_at: serverTimestamp(),
-              }, { merge: true });
-            }
-            await setDoc(vendorRef, { status: STATUS.LINKED, uid, linked_at: serverTimestamp() }, { merge: true });
-            currentUserDoc = (await getDoc(userRef)).data();
-          }
+        const vaSnap = await getDoc(doc(db, 'vendor_accounts', email));
+        if (vaSnap.exists() && vaSnap.data().status === STATUS.LINKED && vaSnap.data().brand_id) {
+          const vd = vaSnap.data();
+          // managers 문서 자동 생성
+          await setDoc(mgrRef, {
+            uid,
+            name:               user.displayName || (userSnap.exists() ? userSnap.data().name : '') || '',
+            phone:              userSnap.exists() ? (userSnap.data().phone || '') : '',
+            contact_email:      email,
+            login_google_email: email,
+            brand_ids:          [vd.brand_id],
+            roles:              { [vd.brand_id]: '' },
+            status:             STATUS.LINKED,
+            active:             true,
+            created_at:         serverTimestamp(),
+            updated_at:         serverTimestamp(),
+            linked_at:          serverTimestamp(),
+          });
+          currentManagerDoc = (await getDoc(mgrRef)).data();
+          migratedFromLegacy = true;
         }
-      } catch (_) { /* 초대 확인 실패는 무시 */ }
+      } catch (_) { /* 레거시 마이그레이션 실패 무시 */ }
 
-      syncPersonDoc(user, currentUserDoc); // 비동기 실행, 완료 대기 안 함
-      renderApp(currentUserDoc.member_status || STATUS.GENERAL);
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          email,
+          name:          user.displayName || '',
+          phone:         '',
+          member_status: migratedFromLegacy ? STATUS.BRAND : STATUS.GENERAL,
+          created_at:    serverTimestamp(),
+          updated_at:    serverTimestamp(),
+        });
+      }
+      currentUserDoc = (await getDoc(userRef)).data();
+
+      if (migratedFromLegacy) {
+        const brandIds = getManagerBrandIds();
+        if (brandIds.length > 0) setActiveBrand(brandIds[0]);
+        renderApp(STATUS.BRAND);
+      } else {
+        renderApp(currentUserDoc.member_status || STATUS.GENERAL);
+      }
     }
   } catch (e) {
-    // 예외 발생 시 로딩 화면이 고정되지 않도록 보장
     console.error('앱 초기화 오류:', e);
     if (currentUserDoc) {
       renderApp(currentUserDoc.member_status || STATUS.GENERAL);
@@ -366,48 +393,26 @@ function showNoBrandState() {
   document.getElementById('btn-no-brand-signout').addEventListener('click', () => signOut(auth));
 }
 
-// ── persons 최상위 컬렉션 동기화 ──
-async function syncPersonDoc(user, userData) {
+// ── managers 문서 이름 동기화 ──
+async function syncManagerDoc(user) {
+  if (!currentManagerDoc) return;
   try {
-    const personId = userData.person_id;
-    if (personId) {
-      await updateDoc(doc(db, 'persons', personId), {
-        name:               user.displayName || userData.name || '',
-        login_google_email: user.email,
-        updated_at:         serverTimestamp(),
-      }).catch(() => {});
-    } else {
-      const personRef = await addDoc(collection(db, 'persons'), {
-        brand_id:           userData.brand_id || null,
-        name:               user.displayName || '',
-        login_google_email: user.email,
-        contact_email:      user.email,
-        role:               '',
-        active:             true,
-        created_at:         serverTimestamp(),
-        updated_at:         serverTimestamp(),
-      });
-      await updateDoc(doc(db, 'users', user.uid), {
-        person_id:  personRef.id,
-        updated_at: serverTimestamp(),
-      });
-      await updateDoc(doc(db, 'vendor_accounts', user.email.toLowerCase()), {
-        person_id: personRef.id,
-      }).catch(() => {});
-      currentUserDoc = { ...currentUserDoc, person_id: personRef.id };
-    }
-  } catch (_) { /* persons 동기화 실패는 무시 */ }
+    const email = normalizeEmail(user.email);
+    await updateDoc(doc(db, 'managers', email), {
+      name:       user.displayName || currentManagerDoc.name || '',
+      updated_at: serverTimestamp(),
+    }).catch(() => {});
+  } catch (_) { /* 동기화 실패 무시 */ }
 }
 
 // ── 앱 렌더링 ──
 async function renderApp(memberStatus, isNewLink = false) {
-  // brand_ids(또는 brand_id)가 실제로 비어있으면 GENERAL로 강제 조정
   if (memberStatus === STATUS.BRAND) {
-    const ids = getUserBrandIds(currentUserDoc);
+    const ids = getManagerBrandIds();
     if (ids.length === 0) {
       memberStatus = STATUS.GENERAL;
-    } else {
-      setActiveBrand(ids[0] || null);
+    } else if (!activeBrandId || !ids.includes(activeBrandId)) {
+      setActiveBrand(ids[0]);
     }
   }
   updateSidebarUser(memberStatus);
@@ -498,7 +503,7 @@ async function renderSidebar(memberStatus) {
   const nav = $('sidebar-nav');
 
   if (memberStatus === STATUS.BRAND) {
-    const brandIds = getUserBrandIds(currentUserDoc);
+    const brandIds = getManagerBrandIds();
     const dataList = await Promise.all(brandIds.map(id => getBrandData(id)));
     // 삭제된 브랜드는 사이드바에서 제외
     const validPairs = brandIds.map((id, i) => [id, dataList[i]]).filter(([, d]) => !d.deleted);
@@ -684,7 +689,7 @@ async function renderPage(page) {
     case 'pending':       await renderBrandListPage(container); break;
     case 'welcome':       container.innerHTML = renderWelcome(); break;
     case 'brand-info':    await renderBrandInfo(ctx()); break;
-    case 'persons':       await renderPersons(ctx()); break;
+    case 'persons':       await renderManagers(ctx()); break;
     case 'contracts':     await renderContracts(ctx()); break;
     case 'products':      await renderProducts(ctx()); break;
     case 'inventory':     await renderInventory(ctx()); break;
@@ -705,7 +710,7 @@ window._gotoPage = page => renderPage(page);
 // ── 대시보드 ──
 async function renderDashboard() {
   const name    = currentUserDoc?.name || currentUser?.displayName || '';
-  const brandId = currentUserDoc?.brand_id;
+  const brandId = activeBrandId;
   const container = $('main-content');
 
   container.innerHTML = `
@@ -1289,7 +1294,7 @@ async function renderPendingFull(container) {
 // ── 환영(자동연결) 화면 ──
 function renderWelcome() {
   const name    = currentUserDoc?.name || currentUser?.displayName || '';
-  const brandId = currentUserDoc?.brand_id || '';
+  const brandId = activeBrandId || '';
   return `
     <div class="pending-wrap">
       <div class="pending-icon">🎉</div>
@@ -1505,63 +1510,61 @@ async function renderMemberOnboardingPage(container) {
   });
 }
 
-// ── 담당 브랜드 목록 (일반회원) ──
+// ── 담당 브랜드 목록 ──
 async function renderBrandListPage(container) {
   container.innerHTML = '<div class="card"><div class="spinner" style="margin:40px auto"></div></div>';
-  const uid = currentUser.uid;
   const isBrandMember = currentUserDoc?.member_status === STATUS.BRAND;
 
-  // 브랜드 담당자: 실제 담당 브랜드 목록 표시
   if (isBrandMember) {
     try {
-      // 최신 userDoc 로드 (외부에서 브랜드가 추가된 경우 반영)
-      const freshSnap = await getDoc(doc(db, 'users', uid));
-      if (freshSnap.exists()) currentUserDoc = freshSnap.data();
-      const brandIds = getUserBrandIds(currentUserDoc);
+      // 최신 managers 문서 로드 (외부에서 브랜드가 추가된 경우 반영)
+      const email = normalizeEmail(currentUser.email);
+      const freshMgrSnap = await getDoc(doc(db, 'managers', email));
+      if (freshMgrSnap.exists()) currentManagerDoc = freshMgrSnap.data();
+
+      const brandIds = getManagerBrandIds();
       const allBrands = await Promise.all(brandIds.map(id => getBrandData(id).then(d => ({ id, ...d }))));
 
-      // 삭제된 브랜드 자동 정리 (brand_ids에서 제거)
+      // 삭제된 브랜드 자동 정리
       const deletedIds = allBrands.filter(b => b.deleted).map(b => b.id);
       if (deletedIds.length > 0) {
         const remainingIds = brandIds.filter(id => !deletedIds.includes(id));
-        const updates = {
-          brand_ids:  remainingIds,
-          updated_at: serverTimestamp(),
-        };
-        if (deletedIds.includes(currentUserDoc.brand_id)) {
-          updates.brand_id = remainingIds[0] || null;
-        }
-        // 담당 브랜드가 모두 삭제됐으면 계정 상태를 일반회원으로 되돌림
-        if (remainingIds.length === 0) {
-          updates.member_status = STATUS.GENERAL;
-          updates.brand_id = null;
-        }
-        await updateDoc(doc(db, 'users', currentUser.uid), updates).catch(() => {});
-        currentUserDoc = { ...currentUserDoc, ...updates };
-        if (updates.brand_id !== undefined) setActiveBrand(updates.brand_id);
+        const updatedRoles = { ...(currentManagerDoc.roles || {}) };
+        deletedIds.forEach(id => delete updatedRoles[id]);
+        const mgrUpdates = { brand_ids: remainingIds, roles: updatedRoles, updated_at: serverTimestamp() };
+        if (remainingIds.length === 0) mgrUpdates.status = '비활성';
+        await updateDoc(doc(db, 'managers', email), mgrUpdates).catch(() => {});
+        currentManagerDoc = { ...currentManagerDoc, ...mgrUpdates };
 
-        // 모든 브랜드가 삭제된 경우: 사이드바를 일반회원 메뉴로 전환하고 일반회원 뷰로 재렌더링
         if (remainingIds.length === 0) {
+          await updateDoc(doc(db, 'users', currentUser.uid), { member_status: STATUS.GENERAL, updated_at: serverTimestamp() }).catch(() => {});
+          currentUserDoc = { ...currentUserDoc, member_status: STATUS.GENERAL };
+          setActiveBrand(null);
           await updateSidebarUser(STATUS.GENERAL);
           await renderBrandListPage(container);
           return;
         }
+        if (!remainingIds.includes(activeBrandId)) setActiveBrand(remainingIds[0]);
       }
 
-      // 삭제된 브랜드 제외 + 이름을 알 수 없는 브랜드는 '알 수 없는 브랜드'로 표시
       const brands = allBrands.filter(b => !b.deleted);
 
-      // 각 브랜드에서 현재 사용자의 역할 조회
-      const myEmail = (currentUser.email || '').toLowerCase().trim();
+      // 역할: managers 문서의 roles 맵 우선, 없으면 서브컬렉션 조회
+      const myEmail = email;
+      const rolesMap = currentManagerDoc.roles || {};
       const roleByBrandId = {};
       await Promise.all(brands.map(async b => {
-        try {
-          const pSnap = await getDocs(query(
-            collection(db, 'brands', b.id, 'persons'),
-            where('login_google_email', '==', myEmail),
-          ));
-          roleByBrandId[b.id] = pSnap.docs[0]?.data()?.role || '';
-        } catch (_) { roleByBrandId[b.id] = ''; }
+        if (rolesMap[b.id]) {
+          roleByBrandId[b.id] = rolesMap[b.id];
+        } else {
+          try {
+            const mSnap = await getDocs(query(
+              collection(db, 'brands', b.id, 'managers'),
+              where('login_google_email', '==', myEmail),
+            ));
+            roleByBrandId[b.id] = mSnap.docs[0]?.data()?.role || '';
+          } catch (_) { roleByBrandId[b.id] = ''; }
+        }
       }));
 
       // onboarding_status → 배지 + 설명
