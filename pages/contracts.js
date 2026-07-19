@@ -26,6 +26,7 @@ const STATUS_META = {
   '계약완료':         { badge: 'badge-green',  icon: '✅', label: '계약 완료',            msg: '' },
   '계약기간만료':     { badge: 'badge-gray',   icon: '⬜', label: '계약 만료',            msg: '계약이 만료되었습니다.' },
   '계약해지':         { badge: 'badge-red',    icon: '❌', label: '계약 해지',            msg: '' },
+  '발송실패':         { badge: 'badge-red',    icon: '⚠️', label: '발송 실패',            msg: '계약서 발송에 실패했습니다. 관리자에게 문의해 주세요.' },
   // 구 값 (하위 호환)
   '발송대기':   { badge: 'badge-gray',   icon: '⏳', label: '발송 대기',   msg: '아직 계약서가 발송되지 않았습니다.' },
   '발송됨':     { badge: 'badge-blue',   icon: '📨', label: '발송됨',      msg: '계약서가 발송되었습니다. 카카오톡 또는 이메일로 온 서명 요청을 확인해 주세요.' },
@@ -97,10 +98,11 @@ function contractCard(c) {
 
   const dateRow = (() => {
     const parts = [];
-    if (c.sent_at)      parts.push(`발송일: ${fmt(c.sent_at)}`);
-    if (c.completed_at) parts.push(`체결일: ${fmt(c.completed_at)}`);
-    if (c.canceled_at)  parts.push(`취소일: ${fmt(c.canceled_at)}`);
-    if (c.created_at)   parts.push(`등록일: ${fmt(c.created_at)}`);
+    if (c.period_months) parts.push(`계약 기간: ${c.period_months}개월`);
+    if (c.sent_at)       parts.push(`발송일: ${fmt(c.sent_at)}`);
+    if (c.completed_at)  parts.push(`체결일: ${fmt(c.completed_at)}`);
+    if (c.canceled_at)   parts.push(`취소일: ${fmt(c.canceled_at)}`);
+    if (c.created_at)    parts.push(`등록일: ${fmt(c.created_at)}`);
     return parts.join(' &nbsp;|&nbsp; ');
   })();
 
