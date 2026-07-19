@@ -58,8 +58,10 @@ function openNoticeDetail({ notice: n, showModal, closeModal }) {
   showModal(`
     <div style="font-size:12px;color:var(--gray-400);margin-bottom:8px">${fmtTs(n.created_at)}</div>
     <div class="modal-title" style="font-size:18px">${n.title || '(제목 없음)'}</div>
-    <div style="line-height:1.8;font-size:14px;color:var(--gray-700);white-space:pre-wrap;margin-bottom:24px">${n.content || ''}</div>
-    <button class="btn btn-outline" id="btn-notice-close">닫기</button>
+    <div style="line-height:1.8;font-size:14px;color:var(--gray-700);white-space:pre-wrap;margin-bottom:12px">${n.content || ''}</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-notice-close" style="width:100%">닫기</button>
+    </div>
   `);
   document.getElementById('btn-notice-close').addEventListener('click', closeModal);
 }

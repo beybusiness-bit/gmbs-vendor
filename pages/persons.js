@@ -122,12 +122,9 @@ function openDeleteConfirm({ brandId, person, showModal, closeModal, container, 
       </span>
     </p>
     <div id="del-error" class="form-error"></div>
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-del-cancel" style="flex:1">취소</button>
-      <button class="btn" id="btn-del-confirm"
-        style="flex:1;background:var(--danger);color:#fff;border:none;border-radius:10px;height:48px;font-weight:700;cursor:pointer">
-        삭제
-      </button>
+      <button class="btn btn-danger" id="btn-del-confirm" style="flex:1">삭제</button>
     </div>
   `);
 
@@ -188,7 +185,7 @@ async function openPersonModal({ brandId, person, showModal, closeModal, contain
       <input id="p-login-email2" class="form-input" type="email" placeholder="동일한 이메일 재입력">
     </div>` : ''}
     <div id="p-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-p-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-p-save" style="flex:2">${isEdit ? '저장' : '추가'}</button>
     </div>

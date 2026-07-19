@@ -184,13 +184,14 @@ async function computeBadges() {
     }).length;
 
     if (isBrand && brandId) {
-      // 브랜드 정보: 계약 정보 입력 필요 상태에서 미입력이면 배지
+      // 계약: 계약정보 입력 필요 상태인 계약이 있으면 배지
       try {
-        const brandSnap = await getDoc(doc(db, 'brands', brandId));
-        const bd = brandSnap.data() || {};
-        const si = bd.settlement_info || {};
-        const needsContract = bd.onboarding_status === '계약 정보 입력 필요' && !si.bank_name;
-        if (needsContract) badges['brand-info'] = 1;
+        const contractSnap = await getDocs(collection(db, 'brands', brandId, 'contracts'));
+        const needsInput = contractSnap.docs.some(d => {
+          const cs = d.data().contract_status || d.data().status;
+          return cs === '계약정보입력';
+        });
+        if (needsInput) badges.contracts = 1;
       } catch (_) {}
 
       // 문의하기: 답변완료 중 아직 안 본 것
@@ -514,14 +515,16 @@ const MEMBER_STATUS_LABEL = {
 
 // ── 사이드바 ──
 async function updateSidebarUser(memberStatus) {
-  $('user-name-text').textContent = currentUser.displayName || currentUser.email;
+  const displayName = currentUserDoc?.name || currentUser.displayName || currentUser.email;
+  $('user-name-text').textContent = displayName;
   $('user-role-text').textContent = MEMBER_STATUS_LABEL[memberStatus] || memberStatus;
 
   const avatarEl = $('user-avatar');
-  if (currentUser.photoURL) {
-    avatarEl.innerHTML = `<img src="${currentUser.photoURL}" alt="프로필">`;
+  const photoUrl = currentUserDoc?.photo_url || currentUser.photoURL;
+  if (photoUrl) {
+    avatarEl.innerHTML = `<img src="${photoUrl}" alt="프로필">`;
   } else {
-    avatarEl.textContent = (currentUser.displayName || currentUser.email || '?')[0].toUpperCase();
+    avatarEl.textContent = (displayName || '?')[0].toUpperCase();
   }
   await renderSidebar(memberStatus);
 }
@@ -733,7 +736,13 @@ async function renderPage(page) {
     case 'notices':       await renderNotices(ctx()); break;
     case 'inquiries':             await renderInquiries(ctx()); break;
     case 'customer-inquiries':    await renderCustomerInquiries(ctx()); break;
-    case 'account':               await renderAccount(ctx()); break;
+    case 'account':               await renderAccount({ ...ctx(), onSave: (updates) => {
+      if (updates.name !== undefined)         currentUserDoc.name = updates.name;
+      if (updates.phone !== undefined)        currentUserDoc.phone = updates.phone;
+      if (updates.contact_email !== undefined) currentUserDoc.contact_email = updates.contact_email;
+      if (updates.photo_url !== undefined)    currentUserDoc.photo_url = updates.photo_url;
+      updateSidebarUser(currentUserDoc.member_status || STATUS.GENERAL);
+    } }); break;
     default:              container.innerHTML = '<p>페이지를 찾을 수 없습니다.</p>';
   }
 
@@ -882,7 +891,9 @@ async function openJoinModal() {
       <div id="join-role-hint" class="form-hint">주관리자는 브랜드당 1명만 설정할 수 있습니다.</div>
     </div>
     <div id="join-error" class="form-error"></div>
-    <button class="btn btn-primary" id="btn-join-submit" style="margin-top:8px">신청하기</button>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="btn-join-submit">신청하기</button>
+    </div>
   `);
 
   // 브랜드 검색 로직
@@ -1095,7 +1106,9 @@ async function openApplyModal() {
     </div>
 
     <div id="app-error" class="form-error"></div>
-    <button class="btn btn-primary" id="btn-app-submit" style="margin-top:8px">신청하기</button>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="btn-app-submit">신청하기</button>
+    </div>
   `);
 
   // URL 행 추가 함수
@@ -1235,7 +1248,9 @@ function showApplicationDetail(item) {
     ${row('연락처', esc(item.applicant_phone || ''))}
     ${row('이메일', esc(item.applicant_contact_email || ''))}
     ${rejReason ? `<div style="margin-top:12px;padding:10px 12px;background:#fee2e2;border-radius:8px;font-size:13px;color:#b91c1c"><strong>거절 사유:</strong> ${esc(rejReason)}</div>` : ''}
-    <button class="btn btn-outline" id="btn-detail-close" style="margin-top:16px">닫기</button>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-detail-close" style="width:100%">닫기</button>
+    </div>
   `);
   document.getElementById('btn-detail-close').addEventListener('click', closeModal);
 }
@@ -1330,9 +1345,9 @@ async function renderPendingFull(container) {
   document.getElementById('btn-new-apply').addEventListener('click', () => {
     showModal(`
       <div class="modal-title">새 신청 유형 선택</div>
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px">
-        <button class="btn btn-primary" id="btn-modal-join" style="margin-top:0">기존 브랜드 담당자로 합류</button>
-        <button class="btn btn-outline" id="btn-modal-apply" style="margin-top:0">새 브랜드 등록 신청</button>
+      <div class="modal-footer" style="display:flex;flex-direction:column;gap:12px">
+        <button class="btn btn-primary" id="btn-modal-join">기존 브랜드 담당자로 합류</button>
+        <button class="btn btn-outline" id="btn-modal-apply">새 브랜드 등록 신청</button>
       </div>
     `);
     document.getElementById('btn-modal-join').addEventListener('click', () => { closeModal(); openJoinModal(); });

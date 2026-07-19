@@ -7,18 +7,23 @@ import {
 } from '../utils/validation.js';
 import { esc, safeUrl } from '../utils/sanitize.js';
 
-// onboarding_status 값 기반 뱃지
+// onboarding_status 값 기반 뱃지 (구 값도 하위 호환)
 function statusBadge(status) {
   const map = {
+    // 확정 5개 값
+    '심사중':   ['badge-yellow', '심사중'],
+    '승인':     ['badge-green',  '승인'],
+    '거절':     ['badge-red',    '거절'],
+    '입점중':   ['badge-green',  '입점중'],
+    '입점종료': ['badge-red',    '입점종료'],
+    // 구 값 (하위 호환)
+    '승인됨':             ['badge-green',  '승인'],
+    '입점확정':           ['badge-green',  '입점중'],
+    '종료':               ['badge-red',    '입점종료'],
     '미계약':             ['badge-gray',   '계약 전'],
     '계약 전':            ['badge-gray',   '계약 전'],
     '계약 정보 입력 필요': ['badge-orange', '계약 정보 입력 필요'],
-    '심사중':             ['badge-yellow', '심사중'],
     '계약완료':           ['badge-yellow', '계약완료'],
-    '승인':               ['badge-green',  '승인'],
-    '입점확정':           ['badge-green',  '입점확정'],
-    '거절':               ['badge-red',    '거절'],
-    '종료':               ['badge-red',    '종료'],
   };
   const [cls, label] = map[status] || ['badge-gray', status || '-'];
   return `<span class="badge ${cls}">${label}</span>`;
@@ -28,6 +33,13 @@ function fmt(ts) {
   if (!ts) return '-';
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+}
+
+function fmtBizDate(s) {
+  if (!s) return '';
+  const clean = s.replace(/-/g, '');
+  if (clean.length === 8) return clean.slice(0,4) + '-' + clean.slice(4,6) + '-' + clean.slice(6,8);
+  return s;
 }
 
 function infoRow(label, value) {
@@ -76,7 +88,13 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
   const b = snap.data();
   const si = b.settlement_info || {};
   const onboardingStatus = b.onboarding_status || b.brand_status || b.status;
-  const brandType = b.brand_type || '';
+  // brand_types 배열 지원 (구 brand_type 문자열 하위 호환)
+  const brandTypes = b.brand_types || (b.brand_type ? [b.brand_type] : []);
+  const brandType  = brandTypes.join(' · ');  // 표시용
+
+  // 암호화된 정산 필드 복호화 (사업자등록번호는 표시용 평문으로, 계좌번호는 버튼 클릭 시 복호화)
+  let bizRegDisplay = si.business_reg_number || '';
+  try { if (bizRegDisplay) bizRegDisplay = await decryptValue(bizRegDisplay); } catch (_) {}
 
   // 관련 사이트
   const websiteUrlsHtml = (() => {
@@ -91,7 +109,7 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
       </div>`;
   })();
 
-  // 정산 정보 (운영자 확정값: 읽기 전용)
+  // 운영자 확정 정보 (읽기 전용)
   const adminConfirmedHtml = (() => {
     const rows = [];
     if (brandType) rows.push(infoRow('거래유형', brandType));
@@ -102,38 +120,51 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
           <code style="background:var(--primary-light);color:var(--primary);padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.05em">${esc(b.brand_code)}</code>
         </span>
       </div>`);
-    const commissionRate = b.fee_info?.commission_rate;
-    if (brandType === '위탁' && commissionRate != null) {
-      rows.push(infoRow('위탁판매대행수수료', `${commissionRate}%`));
-    }
     return rows.join('');
   })();
 
   // 계약 및 정산 정보 (벤더 입력 — 민감 정보 마스킹)
+  // 순서: 사업자여부 → 사번 → 과세 → 상호 → 대표자 → 등록일 → 주소 → 주민 → 은행 → 예금 → 계좌 → 수수료
   const settlementHtml = (() => {
-    if (!si || (!si.bank_name && !si.account_holder)) return '';
+    if (!si || !si.business_type) return '';
     const bizLabel = si.business_type === 'business' ? '사업자' : si.business_type === 'individual' ? '개인(사업자없음)' : '';
     const rows = [];
     if (bizLabel) rows.push(infoRow('사업자 여부', bizLabel));
-    if (si.address) rows.push(infoRow('주소', esc(si.address)));
     if (si.business_type === 'business') {
+      if (bizRegDisplay) rows.push(infoRow('사업자등록번호', esc(bizRegDisplay)));
+      if (si.taxation_type) rows.push(infoRow('과세유형', si.taxation_type));
       if (si.corp_name)           rows.push(infoRow('상호', esc(si.corp_name)));
       if (si.representative_name) rows.push(infoRow('대표자명', esc(si.representative_name)));
-      if (si.business_start_date) rows.push(infoRow('사업자등록일', si.business_start_date));
-      if (si.business_reg_number) rows.push(infoRow('사업자등록번호', si.business_reg_number));
-      if (si.taxation_type)       rows.push(infoRow('과세유형', si.taxation_type));
+      if (si.business_start_date) rows.push(infoRow('사업자등록일', fmtBizDate(si.business_start_date)));
+      if (si.address)             rows.push(infoRow('사업장 주소', esc(si.address)));
     }
-    if (si.business_type === 'individual' && si.resident_number) {
-      rows.push(infoRow('주민등록번호', '••••••-•••••••'));
+    if (si.business_type === 'individual') {
+      if (si.resident_number) rows.push(infoRow('주민등록번호', '••••••-•••••••'));
+      if (si.address)         rows.push(infoRow('주소', esc(si.address)));
     }
-    if (si.bank_name) rows.push(infoRow('은행명', si.bank_name));
+    if (si.bank_name)      rows.push(infoRow('은행명', si.bank_name));
     if (si.account_holder) rows.push(infoRow('예금주명', si.account_holder));
-    if (si.account_number) rows.push(infoRow('계좌번호', '••••••-••-••••••'));
+    if (si.account_number) rows.push(`
+      <div class="info-row">
+        <span class="info-label">계좌번호</span>
+        <span class="info-value" style="display:flex;align-items:center;gap:8px">
+          <span id="account-number-display">••••••-••-••••••</span>
+          <button id="btn-reveal-account"
+            style="font-size:11px;padding:2px 10px;background:var(--gray-100);border:1px solid var(--gray-200);border-radius:4px;cursor:pointer;color:var(--gray-600);font-weight:600;flex-shrink:0">
+            전체 보기
+          </button>
+        </span>
+      </div>`);
+    const commissionRate = b.fee_info?.commission_rate;
+    if (brandTypes.includes('위탁') && commissionRate != null) {
+      rows.push(infoRow('위탁판매수수료', `${commissionRate}%`));
+    }
     return rows.join('');
   })();
 
   const hasSettlement = settlementHtml.length > 0;
-  const needsContractInfo = onboardingStatus === '계약 정보 입력 필요' && !hasSettlement;
+  const hasBank = !!(si.bank_name && si.account_holder);
+  const needsContractInfo = onboardingStatus === '계약 정보 입력 필요' && !hasBank;
 
   const contractCompleteNotice = onboardingStatus === '계약완료' ? `
     <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
@@ -235,6 +266,18 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
   document.getElementById('btn-edit-settlement')?.addEventListener('click', () => {
     openEditSettlementModal({ brandId, brand: b, showModal, closeModal, container, userDoc });
   });
+  document.getElementById('btn-reveal-account')?.addEventListener('click', async function() {
+    this.disabled = true;
+    this.textContent = '...';
+    try {
+      const plain = await decryptValue(si.account_number);
+      document.getElementById('account-number-display').textContent = plain;
+      this.remove();
+    } catch (_) {
+      this.textContent = '오류';
+      this.disabled = false;
+    }
+  });
 }
 
 // ── 기본 정보 수정 모달 ──
@@ -281,8 +324,8 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
     </div>
 
     <div id="edit-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1;margin-top:0">취소</button>
+    <div class="modal-footer" style="display:flex;gap:10px">
+      <button class="btn btn-outline" id="btn-edit-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-edit-save" style="flex:2">저장</button>
     </div>
   `);
@@ -378,7 +421,8 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
 // ── 정산 정보 수정 모달 ──
 async function openEditSettlementModal({ brandId, brand: b, showModal, closeModal, container, userDoc }) {
   const si = b.settlement_info || {};
-  const brandType = b.brand_type || '';
+  const brandTypes = b.brand_types || (b.brand_type ? [b.brand_type] : []);
+  const brandType  = brandTypes.join(' · ');
 
   // 기존 암호화된 값 복호화 (실패시 빈값)
   let existingAccountNumber = '';
@@ -444,8 +488,8 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       </div>
       <div class="form-group" style="margin-top:12px">
         <label class="form-label">사업자등록일 <span style="color:var(--danger)">*</span></label>
-        <input id="edit-business-start-date" class="form-input" type="text" inputmode="numeric" maxlength="8"
-          placeholder="YYYYMMDD (예: 20200115)" value="${esc(si.business_start_date || '')}">
+        <input id="edit-business-start-date" class="form-input" type="text" inputmode="numeric" maxlength="10"
+          placeholder="YYYY-MM-DD" value="${esc(fmtBizDate(si.business_start_date || ''))}">
       </div>
       <div class="form-group">
         <label class="form-label" id="edit-address-biz-label">사업장 주소 <span style="color:var(--danger)">*</span></label>
@@ -488,9 +532,9 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       <input id="edit-account-number" class="form-input" type="text" placeholder="000000-00-000000" value="${existingAccountNumber}">
     </div>
 
-    ${brandType === '위탁' ? `
+    ${brandTypes.includes('위탁') ? `
     <div class="form-group">
-      <label class="form-label">위탁판매대행수수료 (%)</label>
+      <label class="form-label">위탁판매수수료 (%)</label>
       <input id="edit-commission-rate" class="form-input" type="number" min="0" max="100" step="0.1"
         value="${b.fee_info?.commission_rate ?? ''}" placeholder="운영자 확정 전 표시 안 됨" readonly
         style="background:var(--gray-50);color:var(--gray-400)">
@@ -498,11 +542,19 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     </div>` : ''}
 
     <div id="edit-settlement-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1;margin-top:0">취소</button>
+    <div class="modal-footer" style="display:flex;gap:10px">
+      <button class="btn btn-outline" id="btn-settlement-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-settlement-save" style="flex:2">저장</button>
     </div>
   `);
+
+  // 사업자등록일 auto-hyphen (YYYY-MM-DD)
+  document.getElementById('edit-business-start-date').addEventListener('input', (e) => {
+    let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+    if (v.length > 6) v = v.slice(0,4) + '-' + v.slice(4,6) + '-' + v.slice(6);
+    else if (v.length > 4) v = v.slice(0,4) + '-' + v.slice(4);
+    e.target.value = v;
+  });
 
   // 사업자/개인 토글
   document.querySelectorAll('input[name="edit-biz-type"]').forEach(radio => {
@@ -646,7 +698,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
           taxation_type:       document.getElementById('edit-taxation-type').value,
           corp_name:           document.getElementById('edit-corp-name').value.trim(),
           representative_name: document.getElementById('edit-representative-name').value.trim(),
-          business_start_date: document.getElementById('edit-business-start-date').value.trim(),
+          business_start_date: fmtBizDate(document.getElementById('edit-business-start-date').value.trim()),
           resident_number:     null,
         } : {
           resident_number:     residentNumberEnc,
@@ -667,13 +719,8 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       if (si.bank_book_url) updatedSettlement.bank_book_url = si.bank_book_url;
       if (si.biz_reg_url)  updatedSettlement.biz_reg_url  = si.biz_reg_url;
 
-      const brandSnap = await getDoc(doc(db, 'brands', brandId));
-      const currentStatus = brandSnap.data()?.onboarding_status;
-      const statusUpdate = currentStatus === '계약 정보 입력 필요' ? { onboarding_status: '계약 전' } : {};
-
       await updateDoc(doc(db, 'brands', brandId), {
         settlement_info: updatedSettlement,
-        ...statusUpdate,
         updated_at: serverTimestamp(),
       });
 

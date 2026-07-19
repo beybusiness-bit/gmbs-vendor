@@ -54,12 +54,12 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
     )).catch(() => null),
   ]);
 
-  const managers = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const rawManagers = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const pendingJoins = joinSnap ? joinSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
   const myEmail = (user.email || '').toLowerCase().trim();
 
   // 현재 로그인 계정이 managers 서브컬렉션에 없으면 자동 추가
-  const alreadyIn = managers.some(m => (m.login_google_email || '').toLowerCase() === myEmail);
+  const alreadyIn = rawManagers.some(m => (m.login_google_email || '').toLowerCase() === myEmail);
   if (!alreadyIn) {
     try {
       const hasMain = managers.some(m => m.role === '주관리자' && m.active !== false);
@@ -74,13 +74,22 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
         updated_at:         serverTimestamp(),
       };
       const newRef = await addDoc(collection(db, 'brands', brandId, 'managers'), newData);
-      managers.unshift({ id: newRef.id, ...newData });
+      rawManagers.unshift({ id: newRef.id, ...newData });
     } catch (_) { /* 추가 실패 시 목록만 표시 */ }
   }
 
   // 내 역할 파악
-  const myRecord = managers.find(m => (m.login_google_email || '').toLowerCase() === myEmail);
+  const myRecord = rawManagers.find(m => (m.login_google_email || '').toLowerCase() === myEmail);
   const isMain = myRecord?.role === '주관리자';
+
+  // 정렬: 나 → 주관리자 → 부관리자 → 나머지
+  const roleOrder = r => r === '주관리자' ? 0 : r === '부관리자' ? 1 : 2;
+  const managers = [...rawManagers].sort((a, b) => {
+    const aMe = (a.login_google_email || '').toLowerCase() === myEmail;
+    const bMe = (b.login_google_email || '').toLowerCase() === myEmail;
+    if (aMe !== bMe) return aMe ? -1 : 1;
+    return roleOrder(a.role) - roleOrder(b.role);
+  });
 
   function rerender() {
     renderManagers({ userDoc, user, container, showModal, closeModal });
@@ -105,7 +114,7 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
         ? `<div class="card" style="text-align:center;padding:40px;color:var(--gray-400)">
              담당자가 없습니다. 추가 버튼을 눌러 등록하세요.
            </div>`
-        : managers.map(m => managerCard(m, myEmail, isMain)).join('')
+        : managers.map(m => managerCard(m, myEmail)).join('')
       }
 
       ${pendingJoins.length > 0 ? `
@@ -127,30 +136,12 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
     openManagerModal({ brandId, manager: null, showModal, closeModal, container, userDoc, user });
   });
 
-  // 카드 클릭 → 권한 상세/편집 모달
+  // 카드 클릭 → 담당자 상세 모달
   container.querySelectorAll('.manager-card').forEach(card => {
     const id = card.dataset.managerId;
     const manager = managers.find(m => m.id === id);
-    card.addEventListener('click', e => {
-      // 수정/삭제 버튼 클릭 시 카드 클릭 이벤트 무시
-      if (e.target.closest('button')) return;
+    card.addEventListener('click', () => {
       openManagerDetailModal({ brandId, manager, managers, isMain, showModal, closeModal, container, userDoc, user });
-    });
-  });
-
-  container.querySelectorAll('.btn-edit-manager').forEach(btn => {
-    const id = btn.dataset.id;
-    const manager = managers.find(m => m.id === id);
-    btn.addEventListener('click', () => {
-      openManagerModal({ brandId, manager, showModal, closeModal, container, userDoc, user, selfOnly: !isMain });
-    });
-  });
-
-  container.querySelectorAll('.btn-delete-manager').forEach(btn => {
-    const id = btn.dataset.id;
-    const manager = managers.find(m => m.id === id);
-    btn.addEventListener('click', () => {
-      openDeleteConfirm({ brandId, manager, showModal, closeModal, container, userDoc, user });
     });
   });
 
@@ -173,34 +164,28 @@ export async function renderManagers({ userDoc, user, container, showModal, clos
   }
 }
 
-function managerCard(m, myEmail, isMain) {
+function managerCard(m, myEmail) {
   const isMe = (m.login_google_email || '').toLowerCase() === myEmail;
-  const canEdit = isMain || isMe;
-  const canDelete = isMain && !isMe;
+  const avatarHtml = m.photo_url
+    ? `<img src="${m.photo_url}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid var(--gray-200)">`
+    : `<div style="width:44px;height:44px;border-radius:50%;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex-shrink:0">${(m.name || '?')[0].toUpperCase()}</div>`;
   return `
-    <div class="card manager-card" data-manager-id="${m.id}" style="margin-bottom:12px;cursor:pointer" title="클릭하여 상세 정보 보기">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-            <span style="font-size:16px;font-weight:700">${m.name || '-'}</span>
-            ${isMe ? '<span class="badge badge-blue">나</span>' : ''}
-            ${m.role === '주관리자'
-              ? `<span style="background:#8c52ff;color:#fff;font-weight:700;padding:2px 10px;border-radius:12px;font-size:12px">주관리자</span>`
-              : m.role === '부관리자'
-              ? `<span style="background:#eff6ff;color:#2563eb;font-weight:600;padding:2px 10px;border-radius:12px;font-size:12px">부관리자</span>`
-              : m.role ? `<span class="badge badge-gray">${m.role}</span>` : ''}
-          </div>
-          <div style="font-size:13px;color:var(--gray-600);display:grid;gap:3px">
-            ${m.phone ? `<span>📞 ${m.phone}</span>` : ''}
-            ${m.contact_email ? `<span>✉️ ${m.contact_email}</span>` : ''}
-            ${m.login_google_email ? `<span style="color:var(--gray-400);font-size:12px">🔑 ${m.login_google_email}</span>` : ''}
-          </div>
+    <div class="card manager-card" data-manager-id="${m.id}" style="margin-bottom:12px;cursor:pointer;display:flex;align-items:center;gap:12px" title="클릭하여 상세 정보 보기">
+      ${avatarHtml}
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+          <span style="font-size:16px;font-weight:700">${m.name || '-'}</span>
+          ${isMe ? '<span class="badge badge-blue">나</span>' : ''}
+          ${m.role === '주관리자'
+            ? `<span style="background:#8c52ff;color:#fff;font-weight:700;padding:2px 10px;border-radius:12px;font-size:12px">주관리자</span>`
+            : m.role === '부관리자'
+            ? `<span style="background:#eff6ff;color:#2563eb;font-weight:600;padding:2px 10px;border-radius:12px;font-size:12px">부관리자</span>`
+            : m.role ? `<span class="badge badge-gray">${m.role}</span>` : ''}
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          ${canEdit ? `<button class="btn btn-outline btn-edit-manager" data-id="${m.id}"
-            style="width:auto;padding:6px 12px;font-size:13px">수정</button>` : ''}
-          ${canDelete ? `<button class="btn btn-delete-manager" data-id="${m.id}"
-            style="width:auto;padding:6px 12px;font-size:13px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:8px;cursor:pointer">삭제</button>` : ''}
+        <div style="font-size:13px;color:var(--gray-600);display:grid;gap:3px">
+          ${m.phone ? `<span>📞 ${m.phone}</span>` : ''}
+          ${m.contact_email ? `<span>✉️ ${m.contact_email}</span>` : ''}
+          ${m.login_google_email ? `<span style="color:var(--gray-400);font-size:12px">🔑 ${m.login_google_email}</span>` : ''}
         </div>
       </div>
     </div>`;
@@ -264,7 +249,7 @@ function openApproveConfirm({ brandId, joinReq, managers, user, showModal, close
       </select>
     </div>
     <div id="approve-error" class="form-error"></div>
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-approve-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-approve-confirm" style="flex:2">승인하기</button>
     </div>
@@ -369,12 +354,9 @@ function openRejectConfirm({ joinReq, user, showModal, closeModal, rerender }) {
       <textarea id="reject-reason" class="form-input" rows="3" placeholder="신청자에게 전달할 거절 사유를 입력하세요" style="resize:vertical"></textarea>
     </div>
     <div id="reject-error" class="form-error"></div>
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-reject-cancel" style="flex:1">취소</button>
-      <button class="btn" id="btn-reject-confirm"
-        style="flex:2;background:var(--danger);color:#fff;border:none;border-radius:10px;height:48px;font-weight:700;cursor:pointer">
-        거절하기
-      </button>
+      <button class="btn btn-danger" id="btn-reject-confirm" style="flex:2">거절하기</button>
     </div>
   `);
 
@@ -418,12 +400,9 @@ function openDeleteConfirm({ brandId, manager, showModal, closeModal, container,
       </span>
     </p>
     <div id="del-error" class="form-error"></div>
-    <div style="display:flex;gap:10px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-del-cancel" style="flex:1">취소</button>
-      <button class="btn" id="btn-del-confirm"
-        style="flex:1;background:var(--danger);color:#fff;border:none;border-radius:10px;height:48px;font-weight:700;cursor:pointer">
-        삭제
-      </button>
+      <button class="btn btn-danger" id="btn-del-confirm" style="flex:1">삭제</button>
     </div>
   `);
 
@@ -509,7 +488,7 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
       <input id="m-login-email2" class="form-input" type="email" placeholder="동일한 이메일 재입력">
     </div>` : ''}
     <div id="m-error" class="form-error"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
+    <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-m-cancel" style="flex:1">취소</button>
       <button class="btn btn-primary" id="btn-m-save" style="flex:2">${isEdit ? '저장' : '추가'}</button>
     </div>
@@ -636,13 +615,32 @@ async function openManagerModal({ brandId, manager, showModal, closeModal, conta
   });
 }
 
+// 보기 권한 → 쓰기 권한 의존 맵
+const VIEW_WRITE_DEPS = {
+  'brand-info.view':         ['brand-info.edit'],
+  'settlement-info.view':    ['settlement-info.edit'],
+  'products.view':           ['products.create', 'products.edit'],
+  'customer-inquiries.view': ['customer-inquiries.reply'],
+  'inquiries.view':          ['inquiries.create'],
+};
+const WRITE_KEYS = new Set(Object.values(VIEW_WRITE_DEPS).flat());
+
 // ── 담당자 상세 / 권한 편집 모달 ──
-async function openManagerDetailModal({ brandId, manager, managers, isMain, showModal, closeModal, container, userDoc, user }) {
-  const isMe = (manager.login_google_email || '').toLowerCase() === ((user.email || '').toLowerCase());
+async function openManagerDetailModal({ brandId, manager: initialManager, managers, isMain, showModal, closeModal, container, userDoc, user }) {
+  let manager = { ...initialManager };
+  const myEmail = (user.email || '').toLowerCase();
+  const isMe = (manager.login_google_email || '').toLowerCase() === myEmail;
   const isSubjectMain = manager.role === '주관리자';
   const perm = manager.permissions || {};
+  const canDelete = isMain && !isMe;
+  const canEditPerms = isMain && !isSubjectMain;
+  const canEdit = isMain || isMe;
 
-  // 그룹별 권한 목록 렌더
+  function viewGrantedFor(writeKey) {
+    const viewKey = Object.keys(VIEW_WRITE_DEPS).find(vk => VIEW_WRITE_DEPS[vk].includes(writeKey));
+    return viewKey ? perm[viewKey] !== false : true;
+  }
+
   const groups = [...new Set(ADJUSTABLE_PERMISSIONS.map(p => p.group))];
   const permRows = isSubjectMain
     ? `<div style="color:var(--gray-500);font-size:13px;padding:12px 0">주관리자는 모든 권한을 가집니다.</div>`
@@ -652,15 +650,22 @@ async function openManagerDetailModal({ brandId, manager, managers, isMain, show
           <div style="margin-bottom:14px">
             <div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:.05em;margin-bottom:8px">${g.toUpperCase()}</div>
             ${items.map(p => {
-              const granted = perm[p.key] !== false;
+              const isWriteKey = WRITE_KEYS.has(p.key);
+              const viewOk = isWriteKey ? viewGrantedFor(p.key) : true;
+              const forcedOff = isWriteKey && !viewOk;
+              const granted = forcedOff ? false : perm[p.key] !== false;
+              const disabled = !canEditPerms || forcedOff;
+              const trackColor = forcedOff ? 'var(--gray-200)' : granted ? 'var(--primary)' : 'var(--gray-300)';
+              const knobColor = forcedOff ? 'var(--gray-300)' : '#fff';
+              const knobLeft = granted && !forcedOff ? '21px' : '3px';
               return `
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray-100)">
-                  <span style="font-size:13px">${p.label}</span>
-                  <label class="perm-toggle" style="position:relative;display:inline-block;width:40px;height:22px;cursor:${isMain ? 'pointer' : 'default'}">
-                    <input type="checkbox" data-perm-key="${p.key}" ${granted ? 'checked' : ''} ${!isMain ? 'disabled' : ''}
+                <div class="perm-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray-100)" data-perm-row="${p.key}">
+                  <span class="perm-label" style="font-size:13px${forcedOff ? ';color:var(--gray-300)' : ''}">${p.label}</span>
+                  <label class="perm-toggle" style="position:relative;display:inline-block;width:40px;height:22px;cursor:${disabled ? 'default' : 'pointer'}">
+                    <input type="checkbox" data-perm-key="${p.key}" ${granted ? 'checked' : ''} ${disabled ? 'disabled' : ''}
                       style="opacity:0;width:0;height:0;position:absolute">
-                    <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:${granted ? 'var(--primary)' : 'var(--gray-300)'};border-radius:22px;transition:background .2s">
-                      <span style="position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:3px;left:${granted ? '21px' : '3px'};transition:left .2s"></span>
+                    <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:${trackColor};border-radius:22px;transition:background .2s">
+                      <span style="position:absolute;width:16px;height:16px;background:${knobColor};border-radius:50%;top:3px;left:${knobLeft};transition:left .2s"></span>
                     </span>
                   </label>
                 </div>`;
@@ -668,52 +673,184 @@ async function openManagerDetailModal({ brandId, manager, managers, isMain, show
           </div>`;
       }).join('');
 
+  const footerHtml = isMain ? `
+    <div id="perm-save-error" class="form-error"></div>
+    <div class="modal-footer" style="display:flex;gap:10px;align-items:center">
+      ${canDelete ? `<button class="btn btn-danger" id="btn-perm-delete" style="flex:1">삭제</button>` : ''}
+      <button class="btn btn-outline" id="btn-perm-cancel" style="flex:1">닫기</button>
+      ${canEditPerms ? `<button class="btn btn-primary" id="btn-perm-save" style="flex:2">권한 저장</button>` : ''}
+    </div>` : `
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-perm-cancel" style="width:100%">닫기</button>
+    </div>`;
+
+  function infoViewHtml(m) {
+    const av = m.photo_url
+      ? `<img src="${m.photo_url}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid var(--gray-200)">`
+      : `<div style="width:44px;height:44px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--primary);flex-shrink:0">${(m.name || '?')[0].toUpperCase()}</div>`;
+    return `
+      <div id="manager-info-view" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--gray-100)">
+        ${av}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:16px;font-weight:700">${m.name || '-'}${isMe ? ' <span style="font-size:12px;background:#eff6ff;color:var(--primary);padding:2px 6px;border-radius:6px">나</span>' : ''}</div>
+          <div style="font-size:13px;color:var(--gray-500);margin-top:2px">
+            ${m.role === '주관리자'
+              ? '<span style="color:#8c52ff;font-weight:700">주관리자</span>'
+              : '<span style="color:#2563eb">부관리자</span>'}
+            ${m.phone ? ` · ${m.phone}` : ''}
+          </div>
+          ${m.contact_email ? `<div style="font-size:12px;color:var(--gray-400)">✉️ ${m.contact_email}</div>` : ''}
+          ${m.login_google_email ? `<div style="font-size:12px;color:var(--gray-400)">🔑 ${m.login_google_email}</div>` : ''}
+        </div>
+        ${canEdit ? `<button id="btn-open-edit-info" style="width:auto;padding:6px 12px;font-size:13px;background:var(--gray-100);border:1px solid var(--gray-200);border-radius:8px;cursor:pointer;color:var(--gray-700);font-weight:600;flex-shrink:0">✏️ 수정</button>` : ''}
+      </div>
+      <div id="manager-info-edit" style="display:none;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--gray-100)">
+        <div class="form-group">
+          <label class="form-label">이름 <span style="color:var(--danger)">*</span></label>
+          <input id="edit-mgr-name" class="form-input" type="text" value="${m.name || ''}">
+        </div>
+        ${isMain && !isMe ? `
+        <div class="form-group">
+          <label class="form-label">역할</label>
+          <select id="edit-mgr-role" class="form-input form-select">
+            <option value="주관리자"${m.role === '주관리자' ? ' selected' : ''}>주관리자</option>
+            <option value="부관리자"${m.role !== '주관리자' ? ' selected' : ''}>부관리자</option>
+          </select>
+        </div>` : `
+        <div class="form-group">
+          <label class="form-label">역할</label>
+          <input class="form-input" type="text" value="${m.role || ''}" disabled style="background:var(--gray-50);color:var(--gray-400)">
+        </div>`}
+        <div class="form-group">
+          <label class="form-label">연락처</label>
+          <input id="edit-mgr-phone" class="form-input" type="text" value="${m.phone || ''}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">이메일</label>
+          <input id="edit-mgr-email" class="form-input" type="email" value="${m.contact_email || ''}">
+        </div>
+        <div id="edit-mgr-error" class="form-error"></div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-outline" id="btn-cancel-edit-info" style="flex:1">취소</button>
+          <button class="btn btn-primary" id="btn-save-edit-info" style="flex:2">저장</button>
+        </div>
+      </div>`;
+  }
+
   showModal(`
     <div class="modal-title">담당자 상세</div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--gray-100)">
-      <div style="width:44px;height:44px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--primary);flex-shrink:0">
-        ${(manager.name || '?')[0].toUpperCase()}
-      </div>
-      <div>
-        <div style="font-size:16px;font-weight:700">${manager.name || '-'}${isMe ? ' <span style="font-size:12px;background:#eff6ff;color:var(--primary);padding:2px 6px;border-radius:6px">나</span>' : ''}</div>
-        <div style="font-size:13px;color:var(--gray-500);margin-top:2px">
-          ${manager.role === '주관리자'
-            ? '<span style="color:#8c52ff;font-weight:700">주관리자</span>'
-            : '<span style="color:#2563eb">부관리자</span>'}
-          ${manager.phone ? ` · ${manager.phone}` : ''}
-        </div>
-        ${manager.contact_email ? `<div style="font-size:12px;color:var(--gray-400)">✉️ ${manager.contact_email}</div>` : ''}
-        ${manager.login_google_email ? `<div style="font-size:12px;color:var(--gray-400)">🔑 ${manager.login_google_email}</div>` : ''}
-      </div>
-    </div>
+    ${infoViewHtml(manager)}
     <div style="margin-bottom:8px">
       <div style="font-size:14px;font-weight:700;margin-bottom:12px">메뉴 접근 권한</div>
       ${!isMain && !isSubjectMain ? '<div style="background:#fef3c7;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">권한 수정은 주관리자만 가능합니다.</div>' : ''}
       ${permRows}
     </div>
-    ${isMain && !isSubjectMain ? `
-      <div id="perm-save-error" class="form-error"></div>
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <button class="btn btn-outline" id="btn-perm-cancel" style="flex:1">닫기</button>
-        <button class="btn btn-primary" id="btn-perm-save" style="flex:2">권한 저장</button>
-      </div>` : `
-      <button class="btn btn-outline" id="btn-perm-cancel" style="width:100%;margin-top:8px">닫기</button>`}
+    ${footerHtml}
   `);
 
-  // 토글 UI 인터랙션
-  if (isMain && !isSubjectMain) {
+  function applyToggleStyle(input, checked, disabled) {
+    const span = input.nextElementSibling;
+    const knob = span.querySelector('span');
+    if (disabled) {
+      span.style.background = 'var(--gray-200)';
+      knob.style.background = 'var(--gray-300)';
+      knob.style.left = '3px';
+    } else if (checked) {
+      span.style.background = 'var(--primary)';
+      knob.style.background = '#fff';
+      knob.style.left = '21px';
+    } else {
+      span.style.background = 'var(--gray-300)';
+      knob.style.background = '#fff';
+      knob.style.left = '3px';
+    }
+  }
+
+  function wireEditInfoButtons() {
+    document.getElementById('btn-open-edit-info')?.addEventListener('click', () => {
+      document.getElementById('manager-info-view').style.display = 'none';
+      document.getElementById('manager-info-edit').style.display = 'block';
+    });
+
+    document.getElementById('btn-cancel-edit-info')?.addEventListener('click', () => {
+      document.getElementById('manager-info-edit').style.display = 'none';
+      document.getElementById('manager-info-view').style.display = 'flex';
+    });
+
+    document.getElementById('btn-save-edit-info')?.addEventListener('click', async () => {
+      const name = document.getElementById('edit-mgr-name').value.trim();
+      const role = isMain && !isMe
+        ? document.getElementById('edit-mgr-role').value
+        : manager.role;
+      const phone = document.getElementById('edit-mgr-phone').value.trim();
+      const contact_email = document.getElementById('edit-mgr-email').value.trim();
+      const errEl = document.getElementById('edit-mgr-error');
+      const saveBtn = document.getElementById('btn-save-edit-info');
+      errEl.textContent = '';
+
+      if (!name) { errEl.textContent = '이름을 입력해 주세요.'; return; }
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = '저장 중...';
+
+      try {
+        const updates = { name, role, phone, contact_email, updated_at: serverTimestamp() };
+        await updateDoc(doc(db, 'brands', brandId, 'managers', manager.id), updates);
+
+        const topLevelEmail = (manager.login_google_email || '').toLowerCase();
+        if (topLevelEmail) {
+          try {
+            await updateDoc(doc(db, 'managers', topLevelEmail), { name, phone, contact_email, updated_at: serverTimestamp() });
+          } catch (_) {}
+        }
+
+        const updatedManager = { ...manager, name, role, phone, contact_email };
+        closeModal();
+        openManagerDetailModal({ brandId, manager: updatedManager, managers, isMain, showModal, closeModal, container, userDoc, user });
+      } catch (e) {
+        const err = document.getElementById('edit-mgr-error');
+        if (err) err.textContent = '저장 중 오류가 발생했습니다.';
+        saveBtn.disabled = false;
+        saveBtn.textContent = '저장';
+      }
+    });
+  }
+
+  wireEditInfoButtons();
+
+  if (canEditPerms) {
     document.querySelectorAll('.perm-toggle input[data-perm-key]').forEach(input => {
       input.addEventListener('change', () => {
-        const span = input.nextElementSibling;
-        const knob = span.querySelector('span');
-        if (input.checked) {
-          span.style.background = 'var(--primary)';
-          knob.style.left = '21px';
-        } else {
-          span.style.background = 'var(--gray-300)';
-          knob.style.left = '3px';
-        }
+        applyToggleStyle(input, input.checked, false);
+
+        const key = input.dataset.permKey;
+        const deps = VIEW_WRITE_DEPS[key];
+        if (!deps) return;
+
+        deps.forEach(writeKey => {
+          const writeInput = document.querySelector(`.perm-toggle input[data-perm-key="${writeKey}"]`);
+          if (!writeInput) return;
+          const row = writeInput.closest('.perm-row');
+          const label = row?.querySelector('.perm-label');
+          if (!input.checked) {
+            writeInput.checked = false;
+            writeInput.disabled = true;
+            if (label) label.style.color = 'var(--gray-300)';
+            applyToggleStyle(writeInput, false, true);
+          } else {
+            writeInput.disabled = false;
+            if (label) label.style.color = '';
+            applyToggleStyle(writeInput, writeInput.checked, false);
+          }
+        });
       });
+    });
+  }
+
+  if (canDelete) {
+    document.getElementById('btn-perm-delete').addEventListener('click', () => {
+      closeModal();
+      openDeleteConfirm({ brandId, manager, showModal, closeModal, container, userDoc, user });
     });
   }
 

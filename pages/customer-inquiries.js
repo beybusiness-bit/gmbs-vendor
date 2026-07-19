@@ -186,7 +186,7 @@ async function openDetail({ inq, user, userDoc, showModal, closeModal, onRefresh
       <textarea id="cs-resp-input" class="form-input" rows="4" style="resize:vertical"
         placeholder="응답 내용을 입력하세요"></textarea>
       <div id="cs-resp-error" class="form-error"></div>
-      <div style="display:flex;gap:10px;margin-top:10px">
+      <div class="modal-footer" style="display:flex;gap:10px">
         <button class="btn btn-outline" id="btn-cs-close" style="flex:1">닫기</button>
         <button class="btn btn-primary" id="btn-cs-submit" style="flex:2">응답 저장</button>
       </div>
@@ -194,7 +194,9 @@ async function openDetail({ inq, user, userDoc, showModal, closeModal, onRefresh
     <div style="text-align:center;padding:12px;color:var(--gray-400);font-size:13px;background:var(--gray-50);border-radius:8px;margin-bottom:12px">
       처리 완료된 문의입니다.
     </div>
-    <button class="btn btn-outline" id="btn-cs-close" style="width:100%">닫기</button>`}
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="btn-cs-close" style="width:100%">닫기</button>
+    </div>`}
   `);
 
   document.getElementById('btn-cs-close').addEventListener('click', closeModal);
