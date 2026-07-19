@@ -12,7 +12,7 @@ function statusBadge(status) {
   const map = {
     // 신규 값
     '입점중':   ['badge-green',  '입점중'],
-    '승인됨':   ['badge-green',  '승인됨'],
+    '승인됨':   ['badge-green',  '승인'],
     '입점종료': ['badge-red',    '입점종료'],
     // 구 값 (하위 호환)
     '미계약':             ['badge-gray',   '계약 전'],
@@ -20,7 +20,7 @@ function statusBadge(status) {
     '계약 정보 입력 필요': ['badge-orange', '계약 정보 입력 필요'],
     '심사중':             ['badge-yellow', '심사중'],
     '계약완료':           ['badge-yellow', '계약완료'],
-    '승인':               ['badge-green',  '승인됨'],
+    '승인':               ['badge-green',  '승인'],
     '입점확정':           ['badge-green',  '입점중'],
     '거절':               ['badge-red',    '거절'],
     '종료':               ['badge-red',    '입점종료'],

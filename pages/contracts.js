@@ -20,7 +20,8 @@ function fmt(ts) {
 const STATUS_META = {
   // 신규 값
   '계약정보입력':     { badge: 'badge-orange', icon: '🟡', label: '계약 정보 입력 필요', msg: '담당자가 정보를 입력해 주세요.' },
-  '전자계약발송전':   { badge: 'badge-blue',   icon: '🔵', label: '전자계약 발송 대기',  msg: '관리자가 계약서를 발송할 예정입니다.' },
+  '계약발송전':       { badge: 'badge-blue',   icon: '🔵', label: '계약 발송 대기',      msg: '관리자가 계약서를 발송할 예정입니다.' },
+  '전자계약발송전':   { badge: 'badge-blue',   icon: '🔵', label: '계약 발송 대기',      msg: '관리자가 계약서를 발송할 예정입니다.' },
   '서명진행중':       { badge: 'badge-yellow', icon: '✍️', label: '서명 진행 중',         msg: '이메일로 받은 계약서에 서명해 주세요.' },
   '계약완료':         { badge: 'badge-green',  icon: '✅', label: '계약 완료',            msg: '' },
   '계약기간만료':     { badge: 'badge-gray',   icon: '⬜', label: '계약 만료',            msg: '계약이 만료되었습니다.' },
@@ -103,7 +104,7 @@ function contractCard(c) {
     return parts.join(' &nbsp;|&nbsp; ');
   })();
 
-  const alertStyle = statusKey === '전자계약발송전' || statusKey === '발송됨'
+  const alertStyle = statusKey === '계약발송전' || statusKey === '전자계약발송전' || statusKey === '발송됨'
     ? 'background:#eff6ff;border-left:3px solid var(--primary);'
     : statusKey === '계약완료' || statusKey === '체결완료'
     ? 'background:#f0fdf4;border-left:3px solid var(--success);'
@@ -249,7 +250,7 @@ function openFillContractModal({ brandId, contract, brand, brandTypes, si, showM
 
     try {
       await updateDoc(doc(db, 'brands', brandId, 'contracts', contract.id), {
-        contract_status:    '전자계약발송전',
+        contract_status:    '계약발송전',
         desired_start_date: startDate,
         desired_end_date:   endDate,
         auto_renew:         autoRenew === 'true',
