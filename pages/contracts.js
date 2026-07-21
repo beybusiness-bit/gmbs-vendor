@@ -34,6 +34,42 @@ const STATUS_META = {
   '취소됨':     { badge: 'badge-red',    icon: '❌', label: '취소됨',      msg: '계약 요청이 취소되었습니다. 관리자에게 문의해 주세요.' },
 };
 
+// settlement_info 그룹 키 → 완료 여부 체크 및 표시 정보
+const FIELD_GROUP = {
+  business_type: {
+    label: '사업자 여부',
+    check: (si) => !!si.business_type,
+  },
+  id_number: {
+    label: (si) => si.business_type === 'business' ? '사업자등록번호' : '주민등록번호',
+    check: (si) => si.business_type === 'business' ? !!si.business_reg_number : !!si.resident_number,
+  },
+  corp_name: {
+    label: '상호',
+    check: (si) => !!si.corp_name,
+  },
+  representative_name: {
+    label: '대표자명',
+    check: (si) => !!si.representative_name,
+  },
+  business_start_date: {
+    label: '사업자등록일',
+    check: (si) => !!si.business_start_date,
+  },
+  taxation_type: {
+    label: '과세 유형',
+    check: (si) => !!si.taxation_type,
+  },
+  address: {
+    label: '주소',
+    check: (si) => !!si.address,
+  },
+  bank_account: {
+    label: '계좌 정보',
+    check: (si) => !!si.bank_name && !!si.account_holder && !!si.account_number,
+  },
+};
+
 export async function renderContracts({ userDoc, container, permissions, showModal, closeModal }) {
   if (permissions && permissions['contracts.view'] === false) {
     container.innerHTML = noPerm('입점 계약 관리'); return;
@@ -47,9 +83,10 @@ export async function renderContracts({ userDoc, container, permissions, showMod
 
   container.innerHTML = `<div class="card"><div class="spinner" style="margin:40px auto"></div></div>`;
 
-  const [contractSnap, brandSnap] = await Promise.all([
+  const [contractSnap, brandSnap, rulesSnap] = await Promise.all([
     getDocs(query(collection(db, 'brands', brandId, 'contracts'))),
     getDoc(doc(db, 'brands', brandId)),
+    getDoc(doc(db, 'settings', 'contract_field_rules')).catch(() => null),
   ]);
 
   const contracts = contractSnap.docs
@@ -59,6 +96,7 @@ export async function renderContracts({ userDoc, container, permissions, showMod
   const brand = brandSnap.data() || {};
   const brandTypes = brand.brand_types || (brand.brand_type ? [brand.brand_type] : []);
   const si = brand.settlement_info || {};
+  const fieldRules = rulesSnap?.data() || {};
 
   function rerender() {
     renderContracts({ userDoc, container, permissions, showModal, closeModal });
@@ -87,7 +125,7 @@ export async function renderContracts({ userDoc, container, permissions, showMod
     const cId = btn.dataset.id;
     const contract = contracts.find(c => c.id === cId);
     btn.addEventListener('click', () => {
-      openFillContractModal({ brandId, contract, brand, brandTypes, si, showModal, closeModal, rerender });
+      openFillContractModal({ brandId, contract, brand, brandTypes, si, fieldRules, showModal, closeModal, rerender });
     });
   });
 }
@@ -135,6 +173,24 @@ function contractCard(c) {
       </button>
     </div>` : '';
 
+  // no_contract 레거시: 계약완료이지만 서명 관련 필드가 모두 없는 경우
+  const isNoContract = (statusKey === '계약완료' || statusKey === '체결완료')
+    && !c.signed_at && !c.ucansign_document_id && !c.file_url && !c.signed_pdf_url;
+
+  const contractDocSection = (statusKey === '계약완료' || statusKey === '체결완료') ? `
+    <div style="margin-top:12px">
+      ${isNoContract
+        ? `<p style="font-size:13px;color:var(--gray-500)">📋 별도 서면으로 체결된 계약입니다.</p>`
+        : (c.signed_pdf_url || c.file_url)
+          ? `<a href="${c.signed_pdf_url || c.file_url}" target="_blank" rel="noopener"
+              class="btn btn-outline"
+              style="width:auto;padding:8px 16px;font-size:13px;display:inline-flex;align-items:center;gap:6px;text-decoration:none">
+              📄 계약서 PDF 다운로드
+             </a>`
+          : `<p style="font-size:13px;color:var(--gray-500)">📧 계약서는 이메일로 발송되었습니다.</p>`
+      }
+    </div>` : '';
+
   return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
@@ -150,24 +206,63 @@ function contractCard(c) {
         <div style="padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.6;${alertStyle}">
           ${meta.msg}
         </div>` : ''}
-      ${(statusKey === '계약완료' || statusKey === '체결완료') ? `
-        <div style="margin-top:12px">
-          ${c.signed_pdf_url
-            ? `<a href="${c.signed_pdf_url}" target="_blank" rel="noopener"
-                class="btn btn-outline"
-                style="width:auto;padding:8px 16px;font-size:13px;display:inline-flex;align-items:center;gap:6px;text-decoration:none">
-                📄 계약서 PDF 다운로드
-               </a>`
-            : `<p style="font-size:13px;color:var(--gray-500)">📧 계약서는 이메일로 발송되었습니다.</p>`
-          }
-        </div>` : ''}
+      ${contractDocSection}
       ${fillBtn}
       ${terminationBanner}
     </div>`;
 }
 
-function openFillContractModal({ brandId, contract, brand, brandTypes, si, showModal, closeModal, rerender }) {
-  const contractType = contract.contract_type || brandTypes.join(', ') || '';
+function openFillContractModal({ brandId, contract, brand, brandTypes, si, fieldRules, showModal, closeModal, rerender }) {
+  const contractType = contract.contract_type || '';
+  const requiredGroups = fieldRules[contractType] || [];
+
+  // 정산 정보 필드별 완료 여부 체크
+  const fieldChecks = requiredGroups.map(groupKey => {
+    const group = FIELD_GROUP[groupKey];
+    if (!group) return null;
+    const label = typeof group.label === 'function' ? group.label(si) : group.label;
+    const ok = group.check(si);
+    return { groupKey, label, ok };
+  }).filter(Boolean);
+
+  const allSettlementOk = fieldChecks.every(f => f.ok);
+
+  const settlementCheckHtml = (() => {
+    if (requiredGroups.length === 0) {
+      // rules 없음 — 기존 방식으로 표시
+      if (si.business_type === 'business') {
+        return `<div style="font-size:13px;color:var(--gray-700);line-height:1.8">
+          사업자: <strong>${si.corp_name || '-'}</strong><br>
+          은행: ${si.bank_name || '-'} · 예금주: ${si.account_holder || '-'}
+        </div>`;
+      } else if (si.business_type === 'individual') {
+        return `<div style="font-size:13px;color:var(--gray-700);line-height:1.8">
+          개인(비사업자)<br>
+          은행: ${si.bank_name || '-'} · 예금주: ${si.account_holder || '-'}
+        </div>`;
+      }
+      return `<div style="font-size:13px;color:var(--danger)">⚠️ 정산 정보가 입력되지 않았습니다. 브랜드 정보 페이지에서 먼저 입력해 주세요.</div>`;
+    }
+
+    const rows = fieldChecks.map(f => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
+        <span style="font-size:15px">${f.ok ? '✅' : '❌'}</span>
+        <span style="font-size:13px;color:${f.ok ? 'var(--gray-700)' : 'var(--danger)'};">${f.label}</span>
+        ${!f.ok ? `<span style="font-size:12px;color:var(--gray-400);margin-left:auto">미입력</span>` : ''}
+      </div>
+    `).join('');
+
+    return `
+      <div style="border-radius:8px;overflow:hidden">
+        ${rows}
+      </div>
+      ${!allSettlementOk ? `
+        <div style="margin-top:10px;font-size:13px;color:var(--danger);line-height:1.6">
+          ❌ 표시된 항목을 <strong>브랜드 정보 &gt; 정산 정보</strong>에서 먼저 입력해 주세요.<br>
+          입력 완료 후 이 페이지로 돌아와 다시 시도하세요.
+        </div>` : ''}
+    `;
+  })();
 
   showModal(`
     <div class="modal-title">계약 정보 입력</div>
@@ -210,14 +305,8 @@ function openFillContractModal({ brandId, contract, brand, brandTypes, si, showM
 
     <div class="form-group">
       <label class="form-label">정산 정보 확인</label>
-      <div style="background:var(--gray-50);border-radius:8px;padding:12px 14px;font-size:13px;color:var(--gray-700);line-height:1.8">
-        ${si.business_type === 'business' ? `
-          사업자: <strong>${si.corp_name || '-'}</strong> (${si.business_type === 'business' ? '사업자' : '개인'})<br>
-          은행: ${si.bank_name || '-'} · 예금주: ${si.account_holder || '-'}
-        ` : si.business_type === 'individual' ? `
-          개인사업자 없음<br>
-          은행: ${si.bank_name || '-'} · 예금주: ${si.account_holder || '-'}
-        ` : `<span style="color:var(--warn)">⚠️ 정산 정보가 입력되지 않았습니다. 브랜드 정보 페이지에서 먼저 입력해 주세요.</span>`}
+      <div style="background:var(--gray-50);border-radius:8px;padding:12px 14px">
+        ${settlementCheckHtml}
       </div>
     </div>
 
@@ -230,7 +319,8 @@ function openFillContractModal({ brandId, contract, brand, brandTypes, si, showM
     <div id="fill-error" class="form-error"></div>
     <div class="modal-footer" style="display:flex;gap:10px">
       <button class="btn btn-outline" id="btn-fill-cancel" style="flex:1">취소</button>
-      <button class="btn btn-primary" id="btn-fill-submit" style="flex:2">제출하기</button>
+      <button class="btn btn-primary" id="btn-fill-submit" style="flex:2"
+        ${!allSettlementOk && requiredGroups.length > 0 ? 'disabled' : ''}>제출하기</button>
     </div>
   `);
 
@@ -245,20 +335,30 @@ function openFillContractModal({ brandId, contract, brand, brandTypes, si, showM
     errEl.textContent = '';
 
     if (!startDate || !endDate) { errEl.textContent = '계약 희망 기간(시작일, 종료일)을 입력해 주세요.'; return; }
-    if (!si.business_type)      { errEl.textContent = '정산 정보를 먼저 브랜드 정보 페이지에서 입력해 주세요.'; return; }
+
+    // 동적 정산 정보 검증
+    if (requiredGroups.length > 0 && !allSettlementOk) {
+      errEl.textContent = '정산 정보 미입력 항목이 있습니다. 브랜드 정보 페이지에서 먼저 입력해 주세요.';
+      return;
+    }
+    // rules 없을 때 기존 fallback 검증
+    if (requiredGroups.length === 0 && !si.business_type) {
+      errEl.textContent = '정산 정보를 먼저 브랜드 정보 페이지에서 입력해 주세요.';
+      return;
+    }
 
     submitBtn.disabled = true;
     submitBtn.textContent = '제출 중...';
 
     try {
       await updateDoc(doc(db, 'brands', brandId, 'contracts', contract.id), {
-        contract_status:    '계약발송전',
-        desired_start_date: startDate,
-        desired_end_date:   endDate,
-        auto_renew:         autoRenew === 'true',
-        vendor_memo:        memo,
+        contract_status:     '계약발송전',
+        desired_start_date:  startDate,
+        desired_end_date:    endDate,
+        auto_renew:          autoRenew === 'true',
+        vendor_memo:         memo,
         vendor_submitted_at: serverTimestamp(),
-        updated_at:         serverTimestamp(),
+        updated_at:          serverTimestamp(),
       });
       closeModal();
       rerender();
