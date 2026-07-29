@@ -74,6 +74,19 @@ export async function renderContracts({ userDoc, container, permissions, showMod
   if (permissions && permissions['contracts.view'] === false) {
     container.innerHTML = noPerm('입점 계약 관리'); return;
   }
+
+  container.innerHTML = `
+    <div class="pending-wrap">
+      <div class="pending-icon">📄</div>
+      <h2>입점 계약 관리</h2>
+      <p>전자계약 서비스를 준비 중입니다.<br>
+         오픈 시 이메일로 안내드리겠습니다.</p>
+      <div style="margin-top:28px">
+        <span class="badge badge-yellow">준비중</span>
+      </div>
+    </div>`;
+  return;
+
   const brandId = userDoc?.brand_id;
   if (!brandId) {
     container.innerHTML = `<div class="pending-wrap"><div class="pending-icon">⚠️</div>
