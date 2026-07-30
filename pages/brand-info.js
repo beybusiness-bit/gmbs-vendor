@@ -418,6 +418,20 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
   });
 }
 
+function fileUploadField(inputId, existingUrl) {
+  const existingHtml = existingUrl && safeUrl(existingUrl)
+    ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+         <span style="font-size:12px;color:var(--success,#16a34a);font-weight:600">✅ 등록됨</span>
+         <a href="${safeUrl(existingUrl)}" target="_blank" rel="noopener"
+           style="font-size:12px;color:var(--primary);text-decoration:underline">현재 파일 열기</a>
+         <span style="font-size:11px;color:var(--gray-400)">(새로 업로드하면 교체됩니다)</span>
+       </div>`
+    : `<div style="font-size:12px;color:var(--gray-400);margin-bottom:6px">현재 등록된 파일 없음</div>`;
+  return `${existingHtml}<input id="${inputId}" type="file" accept="image/jpeg,image/png,image/jpg,application/pdf"
+    style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer">
+    <p style="font-size:11px;color:var(--gray-400);margin-top:4px">JPG, PNG, PDF 허용 · 최대 10MB</p>`;
+}
+
 // ── 정산 정보 수정 모달 ──
 async function openEditSettlementModal({ brandId, brand: b, showModal, closeModal, container, userDoc }) {
   const si = b.settlement_info || {};
@@ -498,6 +512,10 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       <div id="edit-vat-notice" style="display:${si.taxation_type ? 'block' : 'none'};margin-bottom:16px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;line-height:1.6">
         ⚠️ 세금계산서 발행을 위해 사업자 이메일이 필요할 수 있습니다. 운영자가 별도 안내드립니다.
       </div>
+      <div class="form-group">
+        <label class="form-label">사업자등록증 사본</label>
+        ${fileUploadField('edit-biz-reg-file', si.biz_reg_url)}
+      </div>
     </div>
 
     <!-- 개인 섹션 -->
@@ -516,6 +534,10 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         <label class="form-label">주소 <span style="color:var(--danger)">*</span></label>
         <input id="edit-address-ind" class="form-input" type="text" placeholder="거주지 주소" value="${esc(si.address || '')}">
       </div>
+      <div class="form-group">
+        <label class="form-label">신분증 사본</label>
+        ${fileUploadField('edit-id-card-file', si.id_card_url)}
+      </div>
     </div>
 
     <!-- 공통: 통장 정보 -->
@@ -530,6 +552,10 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
     <div class="form-group">
       <label class="form-label">계좌번호 <span style="color:var(--danger)">*</span></label>
       <input id="edit-account-number" class="form-input" type="text" placeholder="000000-00-000000" value="${existingAccountNumber}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">통장 사본</label>
+      ${fileUploadField('edit-bank-book-file', si.bank_book_url)}
     </div>
 
     ${brandTypes.includes('위탁') ? `
@@ -683,6 +709,25 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         encryptValue(residentNumberRaw),
       ]);
 
+      // 파일 업로드
+      const brandCode = b.brand_code || brandId;
+      const storagePath = `brands/${brandCode}/settlement`;
+
+      async function uploadIfSelected(inputId, fileName) {
+        const file = document.getElementById(inputId)?.files?.[0];
+        if (!file) return null;
+        const ext = file.name.split('.').pop().toLowerCase();
+        const storageRef = ref(storage, `${storagePath}/${fileName}.${ext}`);
+        await uploadBytes(storageRef, file);
+        return await getDownloadURL(storageRef);
+      }
+
+      const [newBizRegUrl, newBankBookUrl, newIdCardUrl] = await Promise.all([
+        isBusiness ? uploadIfSelected('edit-biz-reg-file', 'biz_reg') : Promise.resolve(null),
+        uploadIfSelected('edit-bank-book-file', 'bank_book'),
+        !isBusiness ? uploadIfSelected('edit-id-card-file', 'id_card') : Promise.resolve(null),
+      ]);
+
       const updatedSettlement = {
         ...(si || {}),
         business_type:   bizType,
@@ -692,7 +737,6 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         bank_name:       document.getElementById('edit-bank-name').value.trim(),
         account_holder:  document.getElementById('edit-account-holder').value.trim(),
         account_number:  accountNumberEnc,
-        // 서류 URL(id_card_url 등)은 운영자 전용 — 덮어쓰지 않음
         ...(isBusiness ? {
           business_reg_number: document.getElementById('edit-biz-reg-number').value.trim(),
           taxation_type:       document.getElementById('edit-taxation-type').value,
@@ -710,14 +754,18 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         }),
       };
 
-      // 운영자 업로드 URL은 null로 삭제되지 않도록 undefined/null 키 제거
+      // null 키 제거
       Object.keys(updatedSettlement).forEach(k => {
         if (updatedSettlement[k] === null) delete updatedSettlement[k];
       });
-      // 기존 서류 URL은 유지
-      if (si.id_card_url)  updatedSettlement.id_card_url  = si.id_card_url;
-      if (si.bank_book_url) updatedSettlement.bank_book_url = si.bank_book_url;
-      if (si.biz_reg_url)  updatedSettlement.biz_reg_url  = si.biz_reg_url;
+
+      // 서류 URL: 새로 업로드된 것 우선, 없으면 기존 유지
+      if (newBizRegUrl)              updatedSettlement.biz_reg_url   = newBizRegUrl;
+      else if (si.biz_reg_url)       updatedSettlement.biz_reg_url   = si.biz_reg_url;
+      if (newBankBookUrl)            updatedSettlement.bank_book_url = newBankBookUrl;
+      else if (si.bank_book_url)     updatedSettlement.bank_book_url = si.bank_book_url;
+      if (newIdCardUrl)              updatedSettlement.id_card_url   = newIdCardUrl;
+      else if (si.id_card_url)       updatedSettlement.id_card_url   = si.id_card_url;
 
       await updateDoc(doc(db, 'brands', brandId), {
         settlement_info: updatedSettlement,
