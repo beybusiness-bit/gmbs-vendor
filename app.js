@@ -1465,6 +1465,7 @@ async function renderPublicLanding() {
     faqs = faqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { console.error('[landing] faq_items error:', e); }
 
+  console.log('[landing] cards:', cards.length, cards.map(c => ({id:c.id, title:c.title, order:c.order, active:c.active, audience:c.audience})));
   body.innerHTML = '';
 
   if (cards.length > 0) {
