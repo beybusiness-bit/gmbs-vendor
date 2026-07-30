@@ -1453,8 +1453,9 @@ async function renderPublicLanding() {
     ]);
     cards = cardSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     faqs  = faqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (_) {}
+  } catch (e) { console.error('[landing] Firestore load error:', e); }
 
+  console.log('[landing] cards:', cards.length, 'faqs:', faqs.length, cards);
   body.innerHTML = '';
 
   if (cards.length > 0) {
