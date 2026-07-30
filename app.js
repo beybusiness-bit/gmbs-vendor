@@ -1447,13 +1447,23 @@ async function renderPublicLanding() {
   // onboarding_cards(public) + faq_items 병렬 로드
   let cards = [], faqs = [];
   try {
-    const [cardSnap, faqSnap] = await Promise.all([
-      getDocs(query(collection(db, 'onboarding_cards'), where('audience', '==', 'public'), where('active', '==', true), orderBy('order'))),
-      getDocs(query(collection(db, 'faq_items'), where('active', '==', true), orderBy('order'))),
-    ]);
+    const cardSnap = await getDocs(query(
+      collection(db, 'onboarding_cards'),
+      where('audience', '==', 'public'),
+      where('active', '==', true),
+      orderBy('order'),
+    ));
     cards = cardSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    faqs  = faqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (e) { console.error('[landing] Firestore load error:', e); }
+  } catch (e) { console.error('[landing] onboarding_cards error:', e); }
+
+  try {
+    const faqSnap = await getDocs(query(
+      collection(db, 'faq_items'),
+      where('active', '==', true),
+      orderBy('order'),
+    ));
+    faqs = faqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) { console.error('[landing] faq_items error:', e); }
 
   console.log('[landing] cards:', cards.length, 'faqs:', faqs.length, cards);
   body.innerHTML = '';
