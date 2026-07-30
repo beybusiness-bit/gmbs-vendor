@@ -22,6 +22,12 @@ service cloud.firestore {
       return mgr != null && mgr.status == '연결됨';
     }
 
+    // GMBS 어드민 계정 여부 확인
+    function isAdmin() {
+      return request.auth != null &&
+        request.auth.token.email in ['itsbeybusiness@gmail.com', 'baekeun0@gmail.com'];
+    }
+
     // ── users 컬렉션 ──
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
@@ -216,7 +222,7 @@ service cloud.firestore {
     // ── brand_public_meta 컬렉션 (주관리자 존재 여부 등 공개 메타데이터) ──
     match /brand_public_meta/{brandId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && isBrandMember(brandId);
+      allow write: if isAdmin() || (request.auth != null && isBrandMember(brandId));
     }
 
     // ── customer_inquiries 컬렉션 ──
