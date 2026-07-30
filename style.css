@@ -115,6 +115,22 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   cursor: pointer; border: 1.5px solid var(--gray-200); background: #fff; color: var(--gray-600);
 }
 .faq-cat-btn.active { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+/* accordion (공지사항 / FAQ 공용) */
+.accordion-item { overflow: hidden; }
+.accordion-header {
+  width: 100%; background: none; border: none;
+  padding: 14px 0; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; color: var(--gray-900);
+  text-align: left;
+}
+.accordion-header:hover { color: var(--primary); }
+.accordion-arrow { font-size: 12px; color: var(--gray-400); flex-shrink: 0; transition: color .15s; }
+.accordion-header:hover .accordion-arrow { color: var(--primary); }
+.accordion-body { display: none; padding: 0 0 16px 22px; }
+.accordion-item.open .accordion-body { display: block; }
+
+/* legacy FAQ (랜딩 페이지용) */
 .faq-item { border-bottom: 1px solid var(--gray-100); }
 .faq-q {
   width: 100%; text-align: left; background: none; border: none;

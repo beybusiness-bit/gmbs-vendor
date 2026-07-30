@@ -5,7 +5,7 @@ import {
 import {
   getFirestore,
   doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
-  collection, query, where, orderBy, limit,
+  collection, query, where, orderBy, limit, startAfter,
   getDocs, serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {
@@ -30,7 +30,7 @@ export const googleProvider = new GoogleAuthProvider();
 export {
   signInWithPopup, signOut, onAuthStateChanged,
   doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
-  collection, query, where, orderBy, limit,
+  collection, query, where, orderBy, limit, startAfter,
   getDocs, serverTimestamp,
   ref, uploadBytes, getDownloadURL,
 };

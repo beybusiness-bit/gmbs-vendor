@@ -1,7 +1,7 @@
 import {
   auth, db, storage, googleProvider,
   signInWithPopup, signOut, onAuthStateChanged,
-  doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, serverTimestamp,
+  doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, startAfter, getDocs, serverTimestamp,
   ref, uploadBytes, getDownloadURL,
 } from './firebase-init.js';
 import { encryptValue } from './utils/encryption.js';
@@ -1960,18 +1960,73 @@ async function renderBrandListPage(container) {
 
 // ── 자주하는 질문 페이지 ──
 async function renderFaqPage(container) {
+  const PAGE_SIZE = 15;
   container.innerHTML = '<div class="card"><div class="spinner" style="margin:40px auto"></div></div>';
-  let faqs = [];
-  try {
-    const snap = await getDocs(query(collection(db, 'faq_items'), where('active', '==', true), orderBy('order')));
-    faqs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (_) {}
 
-  container.innerHTML = '<div style="max-width:720px"><div id="faq-container" class="card"></div></div>';
-  if (faqs.length === 0) {
-    container.querySelector('#faq-container').innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-400)">등록된 FAQ가 없습니다.</div>';
-  } else {
-    renderFaqSection(container.querySelector('#faq-container'), faqs);
+  let faqs = [];
+  let lastDoc = null;
+  let hasMore = false;
+
+  async function loadMore() {
+    const q = lastDoc
+      ? query(collection(db, 'faq_items'), where('active', '==', true), orderBy('order'), limit(PAGE_SIZE + 1), startAfter(lastDoc))
+      : query(collection(db, 'faq_items'), where('active', '==', true), orderBy('order'), limit(PAGE_SIZE + 1));
+    const snap = await getDocs(q);
+    const docs = snap.docs;
+    hasMore = docs.length > PAGE_SIZE;
+    const page = hasMore ? docs.slice(0, PAGE_SIZE) : docs;
+    lastDoc = page[page.length - 1] || lastDoc;
+    return page.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  try { faqs = await loadMore(); } catch (_) {}
+
+  render();
+
+  function render() {
+    container.innerHTML = `
+      <div style="max-width:720px">
+        <div style="margin-bottom:20px">
+          <h2 style="font-size:18px;font-weight:700">자주하는 질문</h2>
+        </div>
+        <div id="faq-list">
+          ${faqs.length === 0
+            ? `<div class="card" style="text-align:center;padding:40px;color:var(--gray-400)">등록된 FAQ가 없습니다.</div>`
+            : faqs.map(f => `
+              <div class="accordion-item card" style="margin-bottom:8px">
+                <button class="accordion-header">
+                  <span class="accordion-arrow">▼</span>
+                  <div style="flex:1;text-align:left;font-weight:600">${f.question || ''}</div>
+                  ${f.category ? `<span class="badge badge-gray" style="margin-left:12px;white-space:nowrap">${f.category}</span>` : ''}
+                </button>
+                <div class="accordion-body">
+                  <div style="line-height:1.8;font-size:14px;color:var(--gray-700);white-space:pre-wrap">${f.answer || ''}</div>
+                </div>
+              </div>`).join('')}
+        </div>
+        ${hasMore ? `<div style="text-align:center;margin-top:16px">
+          <button class="btn btn-outline" id="btn-faq-more" style="width:auto;padding:10px 28px">더보기</button>
+        </div>` : ''}
+      </div>`;
+
+    container.querySelectorAll('.accordion-header').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const item = btn.closest('.accordion-item');
+        const isOpen = item.classList.contains('open');
+        item.classList.toggle('open', !isOpen);
+        btn.querySelector('.accordion-arrow').textContent = isOpen ? '▼' : '▲';
+      });
+    });
+
+    container.querySelector('#btn-faq-more')?.addEventListener('click', async () => {
+      const btn = container.querySelector('#btn-faq-more');
+      btn.disabled = true; btn.textContent = '불러오는 중...';
+      try {
+        const more = await loadMore();
+        faqs = faqs.concat(more);
+      } catch (_) {}
+      render();
+    });
   }
 }
 
