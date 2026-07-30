@@ -62,14 +62,17 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
 .wizard-title { font-size: 20px; font-weight: 800; margin-bottom: 10px; color: var(--gray-900); }
 .wizard-body  { font-size: 14px; color: var(--gray-600); line-height: 1.7; }
 .wizard-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: 48px 1fr 48px;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 36px;
+  padding: 16px 24px;
   border-top: 1px solid var(--gray-100);
   background: var(--gray-50);
 }
-.wizard-dots { display: flex; gap: 6px; }
+.wizard-dots {
+  display: flex; gap: 6px;
+  justify-content: center;
+}
 .wizard-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
@@ -77,19 +80,26 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; background:
   transition: background .2s;
 }
 .wizard-dot.active { background: var(--primary); }
-.wizard-nav { display: flex; gap: 8px; align-items: center; }
-.btn-wiz-skip { font-size: 13px; color: var(--gray-400); cursor: pointer; background: none; border: none; padding: 6px 0; }
-.btn-wiz-skip:hover { color: var(--gray-600); }
-.btn-wiz-prev {
-  padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
-  background: var(--gray-100); color: var(--gray-600); border: none;
+.btn-wiz-arrow {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, color .15s;
 }
-.btn-wiz-prev:hover { background: var(--gray-200); }
-.btn-wiz-next {
-  padding: 9px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
-  background: var(--primary); color: #fff; border: none;
+.btn-wiz-arrow.active {
+  background: var(--primary);
+  color: #fff;
 }
-.btn-wiz-next:hover { background: var(--primary-dark); }
+.btn-wiz-arrow.active:hover { background: var(--primary-dark); }
+.btn-wiz-arrow.disabled {
+  background: var(--gray-100);
+  color: var(--gray-300);
+  cursor: default;
+  pointer-events: none;
+}
 
 /* FAQ */
 .faq-search-wrap { margin-bottom: 16px; }

@@ -1518,18 +1518,18 @@ function renderWizard(container, cards, { onComplete = null } = {}) {
         <div class="wizard-body">${card.body || ''}</div>
       </div>
       <div class="wizard-footer">
+        <button id="wiz-prev" class="btn-wiz-arrow ${hasPrev ? 'active' : 'disabled'}">&#8249;</button>
         <div class="wizard-dots">
           ${cards.map((_, i) => `<div class="wizard-dot${i === idx ? ' active' : ''}"></div>`).join('')}
         </div>
-        <div class="wizard-nav">
-          ${hasPrev ? `<button class="btn-wiz-prev" id="wiz-prev">← 이전</button>` : '<span></span>'}
-          ${!isLast ? `<button class="btn-wiz-next" id="wiz-next">다음 →</button>` : (onComplete ? `<button class="btn-wiz-next" id="wiz-cta">완료</button>` : '')}
-        </div>
+        <button id="wiz-next" class="btn-wiz-arrow ${!isLast ? 'active' : 'disabled'}">&#8250;</button>
       </div>`;
 
-    wrap.querySelector('#wiz-prev')?.addEventListener('click', () => { idx--; renderCard(); });
-    wrap.querySelector('#wiz-next')?.addEventListener('click', () => { idx++; renderCard(); });
-    wrap.querySelector('#wiz-cta')?.addEventListener('click', () => { if (onComplete) onComplete(); });
+    wrap.querySelector('#wiz-prev')?.addEventListener('click', () => { if (hasPrev) { idx--; renderCard(); } });
+    wrap.querySelector('#wiz-next')?.addEventListener('click', () => {
+      if (!isLast) { idx++; renderCard(); }
+      else if (onComplete) onComplete();
+    });
   }
 
   renderCard();
