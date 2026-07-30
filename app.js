@@ -867,8 +867,11 @@ async function openJoinModal() {
 
   let selectedBrandHasMain = false; // brand_public_meta 기반 주관리자 존재 여부
 
+  const sectionStyle = 'font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.04em;margin:20px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--gray-100)';
+
   showModal(`
     <div class="modal-title">기존 브랜드 담당자로 합류 신청</div>
+    <div style="${sectionStyle};margin-top:0">브랜드 선택</div>
     <div class="form-group">
       <label class="form-label">브랜드명 검색 <span style="color:var(--danger)">*</span></label>
       <input id="join-brand-search" type="text" placeholder="브랜드명을 입력하세요"
@@ -877,6 +880,7 @@ async function openJoinModal() {
       <div id="join-brand-results" style="margin-top:6px"></div>
       <div id="join-brand-selected" style="display:none;margin-top:8px;padding:10px 12px;background:var(--primary-light,#eff6ff);border-radius:8px;font-size:13px;font-weight:600;color:var(--primary)"></div>
     </div>
+    <div style="${sectionStyle}">담당자 정보</div>
     <div class="form-group">
       <label class="form-label">연락처 <span style="color:var(--danger)">*</span></label>
       <input id="join-phone" class="form-input" type="tel" placeholder="010-0000-0000" value="${ud.phone || ''}">
