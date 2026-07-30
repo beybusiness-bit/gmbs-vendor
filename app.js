@@ -1465,27 +1465,25 @@ async function renderPublicLanding() {
     faqs = faqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { console.error('[landing] faq_items error:', e); }
 
-  console.log('[landing] cards:', cards.length, 'faqs:', faqs.length, cards);
   body.innerHTML = '';
 
   if (cards.length > 0) {
     const wizEl = document.createElement('div');
     body.appendChild(wizEl);
-    renderWizard(wizEl, cards, {
-      isPublic: true,
-      onLogin: () => handleGoogleSignIn(),
-    });
-  } else {
-    // 카드 없으면 간단한 로그인 카드
-    body.innerHTML = `
-      <div class="login-card" style="margin-top:48px">
-        <div class="login-logo">게을러서못열뻔한상점(GMBS)</div>
-        <div class="login-sub">입점 브랜드 관리자</div>
-        <button class="btn btn-primary" id="lnd-login2" style="margin-top:8px">${GOOGLE_SVG} 구글로 로그인 / 시작하기</button>
-        <div id="login-error" style="color:var(--danger);font-size:13px;margin-top:14px;min-height:18px"></div>
-      </div>`;
-    body.querySelector('#lnd-login2').addEventListener('click', () => handleGoogleSignIn());
+    renderWizard(wizEl, cards);
   }
+
+  // 로그인 카드 항상 표시
+  const loginCard = document.createElement('div');
+  loginCard.innerHTML = `
+    <div class="login-card" style="margin-top:${cards.length > 0 ? '24px' : '48px'}">
+      <div class="login-logo">게을러서못열뻔한상점(GMBS)</div>
+      <div class="login-sub">입점 브랜드 관리자</div>
+      <button class="btn btn-primary" id="lnd-login" style="margin-top:8px">${GOOGLE_SVG} 구글로 로그인 / 시작하기</button>
+      <div id="login-error" style="color:var(--danger);font-size:13px;margin-top:14px;min-height:18px"></div>
+    </div>`;
+  body.appendChild(loginCard);
+  loginCard.querySelector('#lnd-login').addEventListener('click', () => handleGoogleSignIn());
 
   if (faqs.length > 0) {
     const faqSection = document.createElement('div');
@@ -1500,7 +1498,7 @@ async function renderPublicLanding() {
 }
 
 // ── 위저드 렌더러 (공개/회원 공용) ──
-function renderWizard(container, cards, { isPublic = false, onLogin = null, onComplete = null } = {}) {
+function renderWizard(container, cards, { onComplete = null } = {}) {
   let idx = 0;
 
   const wrap = document.createElement('div');
@@ -1511,17 +1509,6 @@ function renderWizard(container, cards, { isPublic = false, onLogin = null, onCo
     const card = cards[idx];
     const isLast = idx === cards.length - 1;
     const hasPrev = idx > 0;
-
-    let ctaBtn = '';
-    if (isLast) {
-      if (isPublic) {
-        ctaBtn = `<button class="btn-wiz-next" id="wiz-cta">지금 입점 신청하기</button>`;
-      } else {
-        ctaBtn = `<button class="btn-wiz-next" id="wiz-cta">계속하기</button>`;
-      }
-    } else {
-      ctaBtn = `<button class="btn-wiz-next" id="wiz-next">다음 →</button>`;
-    }
 
     wrap.innerHTML = `
       <div class="wizard-card active">
@@ -1534,22 +1521,14 @@ function renderWizard(container, cards, { isPublic = false, onLogin = null, onCo
           ${cards.map((_, i) => `<div class="wizard-dot${i === idx ? ' active' : ''}"></div>`).join('')}
         </div>
         <div class="wizard-nav">
-          <button class="btn-wiz-skip" id="wiz-skip">건너뛰기</button>
-          ${hasPrev ? `<button class="btn-wiz-prev" id="wiz-prev">← 이전</button>` : ''}
-          ${ctaBtn}
+          ${hasPrev ? `<button class="btn-wiz-prev" id="wiz-prev">← 이전</button>` : '<span></span>'}
+          ${!isLast ? `<button class="btn-wiz-next" id="wiz-next">다음 →</button>` : (onComplete ? `<button class="btn-wiz-next" id="wiz-cta">완료</button>` : '')}
         </div>
       </div>`;
 
-    wrap.querySelector('#wiz-skip')?.addEventListener('click', () => {
-      if (isPublic && onLogin) onLogin();
-      else if (onComplete) onComplete();
-    });
     wrap.querySelector('#wiz-prev')?.addEventListener('click', () => { idx--; renderCard(); });
     wrap.querySelector('#wiz-next')?.addEventListener('click', () => { idx++; renderCard(); });
-    wrap.querySelector('#wiz-cta')?.addEventListener('click', () => {
-      if (isPublic && onLogin) onLogin();
-      else if (onComplete) onComplete();
-    });
+    wrap.querySelector('#wiz-cta')?.addEventListener('click', () => { if (onComplete) onComplete(); });
   }
 
   renderCard();
