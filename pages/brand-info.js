@@ -405,7 +405,7 @@ async function openEditBrandModal({ brandId, brand: b, showModal, closeModal, co
         website_urls: websiteUrls,
         updated_at:   serverTimestamp(),
       };
-      if (photoUrl) updates.logo_url = photoUrl;
+      if (photoUrl) updates.brand_photo_url = photoUrl;
 
       await updateDoc(doc(db, 'brands', brandId), updates);
       closeModal();
