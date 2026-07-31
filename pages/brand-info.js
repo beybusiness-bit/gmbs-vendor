@@ -441,9 +441,11 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
   // 기존 암호화된 값 복호화 (실패시 빈값)
   let existingAccountNumber = '';
   let existingResidentNumber = '';
+  let existingBizRegNumber = si.business_reg_number || '';
   try {
     if (si.account_number) existingAccountNumber = await decryptValue(si.account_number);
     if (si.resident_number) existingResidentNumber = await decryptValue(si.resident_number);
+    if (si.business_reg_number) existingBizRegNumber = await decryptValue(si.business_reg_number);
   } catch (_) { /* 키 없으면 빈값으로 */ }
 
   const isBiz = si.business_type === 'business';
@@ -474,7 +476,7 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       <div class="form-group">
         <label class="form-label">사업자등록번호 <span style="color:var(--danger)">*</span></label>
         <div style="display:flex;gap:8px">
-          <input id="edit-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000" value="${si.business_reg_number || ''}" style="flex:1">
+          <input id="edit-biz-reg-number" class="form-input" type="text" placeholder="000-00-00000" value="${existingBizRegNumber}" style="flex:1">
           <button type="button" id="btn-edit-verify-biz"
             style="white-space:nowrap;padding:0 14px;background:var(--gray-100);border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:var(--gray-700)">
             사업자 확인
