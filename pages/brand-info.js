@@ -704,10 +704,17 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       const accountNumberRaw = document.getElementById('edit-account-number').value.trim();
       const residentNumberRaw = !isBusiness ? (document.getElementById('edit-resident-number')?.value.trim() || '') : '';
 
-      const [accountNumberEnc, residentNumberEnc] = await Promise.all([
-        encryptValue(accountNumberRaw),
-        encryptValue(residentNumberRaw),
-      ]);
+      let accountNumberEnc, residentNumberEnc;
+      try {
+        [accountNumberEnc, residentNumberEnc] = await Promise.all([
+          encryptValue(accountNumberRaw),
+          encryptValue(residentNumberRaw),
+        ]);
+      } catch (encErr) {
+        errEl.textContent = '암호화 설정을 불러오지 못했습니다. 운영자에게 문의해 주세요. (app_configs/encryption)';
+        saveBtn.disabled = false; saveBtn.textContent = '저장';
+        return;
+      }
 
       // 파일 업로드
       const brandCode = b.brand_code || brandId;
@@ -722,11 +729,18 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
         return await getDownloadURL(storageRef);
       }
 
-      const [newBizRegUrl, newBankBookUrl, newIdCardUrl] = await Promise.all([
-        isBusiness ? uploadIfSelected('edit-biz-reg-file', 'biz_reg') : Promise.resolve(null),
-        uploadIfSelected('edit-bank-book-file', 'bank_book'),
-        !isBusiness ? uploadIfSelected('edit-id-card-file', 'id_card') : Promise.resolve(null),
-      ]);
+      let newBizRegUrl, newBankBookUrl, newIdCardUrl;
+      try {
+        [newBizRegUrl, newBankBookUrl, newIdCardUrl] = await Promise.all([
+          isBusiness ? uploadIfSelected('edit-biz-reg-file', 'biz_reg') : Promise.resolve(null),
+          uploadIfSelected('edit-bank-book-file', 'bank_book'),
+          !isBusiness ? uploadIfSelected('edit-id-card-file', 'id_card') : Promise.resolve(null),
+        ]);
+      } catch (uploadErr) {
+        errEl.textContent = '파일 업로드에 실패했습니다. Storage 권한을 확인해 주세요.';
+        saveBtn.disabled = false; saveBtn.textContent = '저장';
+        return;
+      }
 
       const updatedSettlement = {
         ...(si || {}),
@@ -775,7 +789,10 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
       closeModal();
       window._gotoPage?.('brand-info');
     } catch (e) {
-      errEl.textContent = '저장 중 오류가 발생했습니다. 다시 시도해 주세요.';
+      const msg = e?.code === 'permission-denied'
+        ? '저장 권한이 없습니다. 운영자에게 문의해 주세요. (Firestore 권한 오류)'
+        : '저장 중 오류가 발생했습니다: ' + (e?.message || e);
+      errEl.textContent = msg;
       saveBtn.disabled = false;
       saveBtn.textContent = '저장';
     }
