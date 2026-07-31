@@ -93,8 +93,8 @@ export async function renderBrandInfo({ userDoc, container, showModal, closeModa
   const brandType  = brandTypes.join(' · ');  // 표시용
 
   // 암호화된 정산 필드 복호화 (사업자등록번호는 표시용 평문으로, 계좌번호는 버튼 클릭 시 복호화)
-  let bizRegDisplay = si.business_reg_number || '';
-  try { if (bizRegDisplay) bizRegDisplay = await decryptValue(bizRegDisplay); } catch (_) {}
+  let bizRegDisplay = '';
+  try { if (si.business_reg_number) bizRegDisplay = await decryptValue(si.business_reg_number); } catch (_) {}
 
   // 관련 사이트
   const websiteUrlsHtml = (() => {
