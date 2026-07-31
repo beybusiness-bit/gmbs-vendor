@@ -438,15 +438,13 @@ async function openEditSettlementModal({ brandId, brand: b, showModal, closeModa
   const brandTypes = b.brand_types || (b.brand_type ? [b.brand_type] : []);
   const brandType  = brandTypes.join(' · ');
 
-  // 기존 암호화된 값 복호화 (실패시 빈값)
+  // 기존 암호화된 값 복호화 (각 필드 독립적으로, 실패시 빈값)
   let existingAccountNumber = '';
   let existingResidentNumber = '';
-  let existingBizRegNumber = si.business_reg_number || '';
-  try {
-    if (si.account_number) existingAccountNumber = await decryptValue(si.account_number);
-    if (si.resident_number) existingResidentNumber = await decryptValue(si.resident_number);
-    if (si.business_reg_number) existingBizRegNumber = await decryptValue(si.business_reg_number);
-  } catch (_) { /* 키 없으면 빈값으로 */ }
+  let existingBizRegNumber = '';
+  try { if (si.account_number)      existingAccountNumber = await decryptValue(si.account_number); }      catch (_) {}
+  try { if (si.resident_number)     existingResidentNumber = await decryptValue(si.resident_number); }    catch (_) {}
+  try { if (si.business_reg_number) existingBizRegNumber = await decryptValue(si.business_reg_number); } catch (_) {}
 
   const isBiz = si.business_type === 'business';
   const isInd = si.business_type === 'individual';
